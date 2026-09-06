@@ -571,6 +571,14 @@ namespace eka2l1::ios::bridge {
         }
     }
 
+    void set_screen_rotation(int degrees) {
+        std::lock_guard<std::mutex> guard(g_mutex);
+        if (g_state && g_state->launcher_) {
+            g_state->launcher_->set_screen_rotation(static_cast<std::uint32_t>(degrees));
+            redraw_screens_immediately();
+        }
+    }
+
     void set_app_refresh_rate(std::uint32_t uid, int fps) {
         std::lock_guard<std::mutex> guard(g_mutex);
         if (g_state && g_state->launcher_) {

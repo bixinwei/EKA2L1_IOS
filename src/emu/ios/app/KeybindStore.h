@@ -79,6 +79,9 @@ NSString *EKAActionName(EKAAction action);
 //   controller: { @"tokens": NSArray<NSString*>, @"action": @(EKAAction) }
 + (NSArray<NSDictionary *> *)keyboardBindingsForUid:(uint32_t)uid;
 + (NSArray<NSDictionary *> *)controllerBindingsForUid:(uint32_t)uid;
+// Phone keypad overrides: each entry is { @"code": NSNumber (Symbian scancode),
+// @"tokens": NSArray<NSString *> } and is captured from a controller input.
++ (NSArray<NSDictionary *> *)phoneBindingsForUid:(uint32_t)uid;
 
 // Display helpers.
 + (NSString *)keyNameForCode:(NSInteger)hidCode;

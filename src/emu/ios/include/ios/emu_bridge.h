@@ -168,6 +168,8 @@ namespace eka2l1::ios::bridge {
     // an immediate re-fit/redraw — call it on launch and on device rotation. set_app_refresh_rate
     // persists a per-app fps into the core's app-settings; it takes effect on the app's next launch.
     void set_screen_gravity(int gravity);
+    // Set the guest display rotation in degrees (0, 90, 180 or 270), applied immediately.
+    void set_screen_rotation(int degrees);
     void set_app_refresh_rate(std::uint32_t uid, int fps);
     // Per-app upscale/filter shader by name (e.g. "natural"); nullptr/"" = off. Persisted into the
     // core's app-settings (compat/<UID>.yml); takes effect on the app's next launch.

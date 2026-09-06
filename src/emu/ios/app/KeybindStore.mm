@@ -192,6 +192,18 @@ static NSDictionary *Entry(NSArray *kb, NSArray *ctrl) {
     return [self flatten:@"ctrl" out:@"tokens" forUid:uid];
 }
 
++ (NSArray<NSDictionary *> *)phoneBindingsForUid:(uint32_t)uid {
+    NSDictionary *phone = [self effectiveModelForUid:uid][@"phone"];
+    if (![phone isKindOfClass:[NSDictionary class]]) return @[];
+    NSMutableArray *out = [NSMutableArray array];
+    [phone enumerateKeysAndObjectsUsingBlock:^(NSString *code, id value, BOOL *stop) {
+        if ([value isKindOfClass:[NSArray class]] && [value count]) {
+            [out addObject:@{ @"code": @([code integerValue]), @"tokens": value }];
+        }
+    }];
+    return out;
+}
+
 // ---- Display names --------------------------------------------------------
 
 + (NSString *)keyNameForCode:(NSInteger)c {

@@ -30,6 +30,13 @@ enum {
     SC_EXTRA_POUND = 0x7F, SC_EXTRA_STAR = '*'
 };
 
+static int PhoneScancodeForCode(NSInteger code) {
+    if (code >= '0' && code <= '9') return (int)code;
+    if (code == '*') return SC_EXTRA_STAR;
+    if (code == '#' || code == 0x7F) return SC_EXTRA_POUND;
+    return -1;
+}
+
 @implementation InputManager {
     NSMutableSet<NSNumber *> *_heldKeys;     // currently-down keyboard GCKeyCodes
     NSMutableSet<NSString *> *_heldCtrl;     // currently-active controller tokens (see readGamepad)
@@ -37,6 +44,7 @@ enum {
     NSSet<NSNumber *> *_prevActive;           // actions active last recompute (edge detection)
     NSArray<NSDictionary *> *_kbBindings;     // { keys:[GCKeyCode], action:EKAAction }
     NSArray<NSDictionary *> *_ctrlBindings;   // { tokens:[NSString], action:EKAAction }
+    NSArray<NSDictionary *> *_phoneBindings;  // { code:NSNumber, tokens:[NSString] }
 }
 
 - (instancetype)init {
@@ -56,6 +64,7 @@ enum {
 - (void)reloadBindingsForUid:(uint32_t)uid {
     _kbBindings = [KeybindStore keyboardBindingsForUid:uid];
     _ctrlBindings = [KeybindStore controllerBindingsForUid:uid];
+    _phoneBindings = [KeybindStore phoneBindingsForUid:uid];
 }
 
 // Keyboard from the UIKit responder chain. _heldKeys is a plain set, so if GCKeyboard also
@@ -256,6 +265,23 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     for (NSNumber *actNum in active) {
         for (NSNumber *sc in ScancodesForAction((EKAAction)actNum.integerValue)) {
             [desired addObject:sc];
+        }
+    }
+
+    // A phone-key mapping is independent of the action table: when all captured
+    // controller tokens are held, emit the corresponding keypad scancode. This
+    // keeps mappings working even when the on-screen overlay is disabled.
+    for (NSDictionary *binding in _phoneBindings) {
+        NSArray *tokens = binding[@"tokens"];
+        NSNumber *code = binding[@"code"];
+        if (![tokens isKindOfClass:[NSArray class]] || !tokens.count || ![code isKindOfClass:[NSNumber class]]) continue;
+        BOOL allHeld = YES;
+        for (NSString *token in tokens) {
+            if (![token isKindOfClass:[NSString class]] || ![_heldCtrl containsObject:token]) { allHeld = NO; break; }
+        }
+        if (allHeld) {
+            int scancode = PhoneScancodeForCode(code.integerValue);
+            if (scancode >= 0) [desired addObject:@(scancode)];
         }
     }
 

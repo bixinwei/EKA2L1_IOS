@@ -74,6 +74,7 @@ namespace eka2l1::ios {
         float scale_ratio_;
         std::uint32_t scale_type_;
         std::uint32_t gravity_;
+        std::atomic<int> screen_rotation_override_{-1};
 
         // The emulated screen's on-screen rectangle, as fractions (0..1) of the swapchain,
         // updated every draw(). Lets the iOS frontend fit the on-screen controls into the empty
@@ -158,6 +159,7 @@ namespace eka2l1::ios {
         // Set just the screen gravity (0=Left,1=Top,2=Center,3=Right,4=Bottom). The iOS
         // frontend changes this per game + orientation; the draw callback picks it up.
         void set_screen_gravity(std::uint32_t gravity);
+        void set_screen_rotation(std::uint32_t degrees);
 
         // Persist a per-app refresh rate (fps) into the emulator's app-settings store
         // (compat/<UID>.yml). Picked up when the app's window group is created on launch.

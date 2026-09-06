@@ -27,6 +27,7 @@
         _refreshRate = 60;
         _gravityPortrait = EKAScreenGravityTop;
         _gravityLandscape = EKAScreenGravityCenter;
+        _screenRotation = 0;
         _hideDynamicIsland = YES;
         _showStatus = NO;
         _autoScalePortrait = YES;
@@ -87,6 +88,10 @@
         s.gravityLandscape = (EKAScreenGravity)[self clampGravity:[dict[@"gravityLandscape"] integerValue]
                                                          fallback:EKAScreenGravityCenter];
     }
+    if (dict[@"screenRotation"]) {
+        NSInteger r = [dict[@"screenRotation"] integerValue];
+        s.screenRotation = (r == 90 || r == 180 || r == 270) ? r : 0;
+    }
     if (dict[@"hideDynamicIsland"] != nil) {
         s.hideDynamicIsland = [dict[@"hideDynamicIsland"] boolValue];
     }
@@ -136,6 +141,7 @@
         @"refreshRate": @(settings.refreshRate),
         @"gravityPortrait": @(settings.gravityPortrait),
         @"gravityLandscape": @(settings.gravityLandscape),
+        @"screenRotation": @(settings.screenRotation),
         @"hideDynamicIsland": @(settings.hideDynamicIsland),
         @"showStatus": @(settings.showStatus),
         @"autoScalePortrait": @(settings.autoScalePortrait),

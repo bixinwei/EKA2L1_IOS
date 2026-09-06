@@ -35,6 +35,8 @@ static NSArray<NSString *> *EKAGravityNames(void) {
     return @[@"Left", @"Top", @"Center", @"Right", @"Bottom"];
 }
 
+static NSArray<NSNumber *> *EKAScreenRotations(void) { return @[@0, @90, @180, @270]; }
+
 @interface GameSettingsViewController () <UITextFieldDelegate>
 @end
 
@@ -82,8 +84,8 @@ static NSArray<NSString *> *EKAGravityNames(void) {
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
         case EKASectionSystem:    return 1;   // Refresh rate
-        case EKASectionScreen:    return 8;   // gravity P/L, hide island, opacity, status, auto-scale, render scale, shader
-        case EKASectionKeyLayout: return 7;   // Layout + haptics + 3 editor entries + gyro + haptic passthrough
+        case EKASectionScreen:    return 9;   // gravity P/L, rotation, hide island, opacity, status, auto-scale, render scale, shader
+        case EKASectionKeyLayout: return 8;   // Layout + haptics + layout editors + phone mapping + passthrough
         case EKASectionReset:     return 1;
         default:                  return 0;
     }
@@ -159,13 +161,18 @@ static NSArray<NSString *> *EKAGravityNames(void) {
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
                 cell.selectionStyle = UITableViewCellSelectionStyleDefault;
             } else if (indexPath.row == 2) {
+                cell.textLabel.text = @"Screen Rotation";
+                cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld°", (long)_settings.screenRotation];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+            } else if (indexPath.row == 3) {
                 cell.textLabel.text = @"Hide Dynamic Island";
                 cell.detailTextLabel.text = nil;
                 UISwitch *sw = [[UISwitch alloc] init];
                 sw.on = _settings.hideDynamicIsland;
                 [sw addTarget:self action:@selector(onHideIslandChanged:) forControlEvents:UIControlEventValueChanged];
                 cell.accessoryView = sw;
-            } else if (indexPath.row == 3) {
+            } else if (indexPath.row == 4) {
                 cell.textLabel.text = @"Overlay opacity";
                 cell.detailTextLabel.text = [NSString stringWithFormat:@"%d%%", (int)(_settings.controlsOpacity * 100 + 0.5)];
                 if (!_opacitySlider) {
@@ -176,19 +183,19 @@ static NSArray<NSString *> *EKAGravityNames(void) {
                 }
                 _opacitySlider.value = _settings.controlsOpacity;
                 cell.accessoryView = _opacitySlider;
-            } else if (indexPath.row == 4) {
+            } else if (indexPath.row == 5) {
                 cell.textLabel.text = @"Status";
                 cell.detailTextLabel.text = @"FPS + speed";
                 UISwitch *sw = [[UISwitch alloc] init];
                 sw.on = _settings.showStatus;
                 [sw addTarget:self action:@selector(onShowStatusChanged:) forControlEvents:UIControlEventValueChanged];
                 cell.accessoryView = sw;
-            } else if (indexPath.row == 5) {
+            } else if (indexPath.row == 6) {
                 cell.textLabel.text = @"Auto Scale Buttons";
                 cell.detailTextLabel.text = [self autoScaleStateName];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
                 cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-            } else if (indexPath.row == 6) {
+            } else if (indexPath.row == 7) {
                 cell.textLabel.text = @"Render Resolution";
                 cell.detailTextLabel.text = [self renderScaleName];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -225,6 +232,9 @@ static NSArray<NSString *> *EKAGravityNames(void) {
                 cell.textLabel.text = @"Per-game Keybinds";
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             } else if (indexPath.row == 5) {
+                cell.textLabel.text = @"Phone Key Mapping";
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            } else if (indexPath.row == 6) {
                 cell.textLabel.text = @"Gyroscope Passthrough";
                 cell.detailTextLabel.text = nil;
                 cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -455,6 +465,21 @@ static NSArray<NSArray<NSString *> *> *EKAFilterShaders(void) {
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+- (void)pickScreenRotationFromCell:(UITableViewCell *)cell {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Screen Rotation" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSNumber *r in EKAScreenRotations()) {
+        [a addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%ld°", (long)r.integerValue] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+            self->_settings.screenRotation = r.integerValue;
+            [self persistAndNotify];
+            [self.tableView reloadData];
+        }]];
+    }
+    [a addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    a.popoverPresentationController.sourceView = cell;
+    a.popoverPresentationController.sourceRect = cell.bounds;
+    [self presentViewController:a animated:YES completion:nil];
+}
+
 - (void)pickLayoutFromCell:(UITableViewCell *)cell {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"On-screen layout" message:nil
                                                            preferredStyle:UIAlertControllerStyleActionSheet];
@@ -488,6 +513,12 @@ static NSArray<NSArray<NSString *> *> *EKAFilterShaders(void) {
     [self.navigationController pushViewController:vc animated:YES];
 }
 
+- (void)openPhoneKeyMapping {
+    PhoneKeyMappingViewController *vc = [[PhoneKeyMappingViewController alloc] initWithUid:_uid
+        onChange:^{ [self.settingsDelegate gameSettingsDidChangeForUid:self->_uid]; }];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
 - (void)showComingSoon:(NSString *)feature {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:feature
         message:@"This is coming in a later update."
@@ -517,16 +548,18 @@ static NSArray<NSArray<NSString *> *> *EKAFilterShaders(void) {
     if (indexPath.section == EKASectionScreen) {
         if (indexPath.row == 0)      [self pickGravityForPortrait:YES fromCell:cell];
         else if (indexPath.row == 1) [self pickGravityForPortrait:NO fromCell:cell];
-        else if (indexPath.row == 5) [self pickAutoScaleFromCell:cell];
-        else if (indexPath.row == 6) [self pickRenderScaleFromCell:cell];
-        else if (indexPath.row == 7) [self pickFilterShaderFromCell:cell];
+        else if (indexPath.row == 2) [self pickScreenRotationFromCell:cell];
+        else if (indexPath.row == 6) [self pickAutoScaleFromCell:cell];
+        else if (indexPath.row == 7) [self pickRenderScaleFromCell:cell];
+        else if (indexPath.row == 8) [self pickFilterShaderFromCell:cell];
     } else if (indexPath.section == EKASectionKeyLayout) {
         if (indexPath.row == 0)      [self pickLayoutFromCell:cell];
         else if (indexPath.row == 1) { /* Haptic Feedback — the switch handles it */ }
         else if (indexPath.row == 2) [self openLayoutEditorPortrait:YES];
         else if (indexPath.row == 3) [self openLayoutEditorPortrait:NO];
         else if (indexPath.row == 4) [self openPerGameKeybinds];
-        else if (indexPath.row == 5) { /* Gyroscope Passthrough — the switch handles it */ }
+        else if (indexPath.row == 5) [self openPhoneKeyMapping];
+        else if (indexPath.row == 6) { /* Gyroscope Passthrough — the switch handles it */ }
         else                         { /* Haptic Passthrough — the switch handles it */ }
     } else if (indexPath.section == EKASectionReset) {
         [self confirmReset];

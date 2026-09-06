@@ -656,6 +656,13 @@ namespace eka2l1::ios {
         gravity_ = gravity;
     }
 
+    void launcher::set_screen_rotation(std::uint32_t degrees) {
+        if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) {
+            degrees = 0;
+        }
+        screen_rotation_override_.store(static_cast<int>(degrees), std::memory_order_relaxed);
+    }
+
     void launcher::set_app_refresh_rate(std::uint32_t uid, std::uint32_t fps) {
         if (!kern) {
             return;
@@ -784,8 +791,10 @@ namespace eka2l1::ios {
             // Record the emulated screen's on-screen rectangle (post-rotation footprint, anchored
             // per the current gravity) as fractions of the surface, so the frontend can fit the
             // touch controls into the empty space beside/below the guest ("auto scale buttons").
-            const float on_w = (scr->ui_rotation % 180 == 0) ? width : height;
-            const float on_h = (scr->ui_rotation % 180 == 0) ? height : width;
+            const int rotation = (screen_rotation_override_.load(std::memory_order_relaxed) >= 0)
+                ? screen_rotation_override_.load(std::memory_order_relaxed) : scr->ui_rotation;
+            const float on_w = (rotation % 180 == 0) ? width : height;
+            const float on_h = (rotation % 180 == 0) ? height : width;
             const float sw = static_cast<float>(swapchain_size.x);
             const float sh = static_cast<float>(swapchain_size.y);
             float ox = 0.0f, oy = 0.0f;
@@ -812,9 +821,9 @@ namespace eka2l1::ios {
             dest.top = eka2l1::vec2(x, y);
             dest.size = eka2l1::vec2(width, height);
 
-            drivers::advance_draw_pos_around_origin(dest, scr->ui_rotation);
+            drivers::advance_draw_pos_around_origin(dest, rotation);
 
-            if (scr->ui_rotation % 180 != 0) {
+            if (rotation % 180 != 0) {
                 std::swap(dest.size.x, dest.size.y);
                 std::swap(src.size.x, src.size.y);
             }
@@ -829,7 +838,7 @@ namespace eka2l1::ios {
             builder.set_texture_filter(scr->screen_texture, true, filter);
             builder.set_texture_filter(scr->screen_texture, false, filter);
             builder.draw_bitmap(scr->screen_texture, 0, dest, src, eka2l1::vec2(0, 0),
-                static_cast<float>(scr->ui_rotation), flags);
+                static_cast<float>(rotation), flags);
         }
 
         builder.load_backup_state();

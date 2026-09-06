@@ -699,6 +699,7 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
     eka2l1::ios::bridge::set_app_filter_shader(uid, (s.filterShader ?: @"").UTF8String);  // upscale shader (off by default)
     eka2l1::ios::bridge::set_gyro_passthrough(s.gyroPassthrough);  // feed device tilt to the guest accelerometer
     eka2l1::ios::bridge::set_haptic_passthrough(s.hapticPassthrough);  // pass guest vibration to the Taptic Engine
+    eka2l1::ios::bridge::set_screen_rotation((int)s.screenRotation);
     self.keyLayout = s.keyLayout;
     self.controlsView.overlayOpacity = s.controlsOpacity;
     self.controlsView.guestRect = CGRectZero;        // unknown until the guest draws → full size
@@ -917,6 +918,7 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
     }
     eka2l1::ios::bridge::set_gyro_passthrough(changed.gyroPassthrough);  // live: affects the next sensor sample
     eka2l1::ios::bridge::set_haptic_passthrough(changed.hapticPassthrough);  // live: affects the next vibration request
+    eka2l1::ios::bridge::set_screen_rotation((int)changed.screenRotation);
     EKAGameSettings *s = [GameSettingsStore settingsForUid:uid];
     self.controlsView.overlayOpacity = s.controlsOpacity;
     self.keyLayout = s.keyLayout;

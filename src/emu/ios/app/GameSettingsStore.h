@@ -40,6 +40,7 @@ typedef NS_ENUM(NSInteger, EKAScreenGravity) {
 @property (nonatomic, assign) NSInteger refreshRate;        // 1..120, default 60
 @property (nonatomic, assign) EKAScreenGravity gravityPortrait;   // default Top
 @property (nonatomic, assign) EKAScreenGravity gravityLandscape;  // default Center
+@property (nonatomic, assign) NSInteger screenRotation;       // 0, 90, 180 or 270 degrees
 @property (nonatomic, assign) BOOL hideDynamicIsland;       // default YES (keep guest out of safe-area/island)
 @property (nonatomic, assign) BOOL showStatus;             // default NO (FPS + speed% overlay on top)
 @property (nonatomic, assign) BOOL autoScalePortrait;      // default YES (shrink controls to fit, portrait)

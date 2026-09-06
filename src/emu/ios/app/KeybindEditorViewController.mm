@@ -28,6 +28,84 @@
                            onSave:(void (^)(void))onSave;
 @end
 
+@interface PhoneKeyMappingViewController ()
+@end
+
+@implementation PhoneKeyMappingViewController {
+    uint32_t _uid;
+    void (^_onChange)(void);
+    NSMutableDictionary *_phone;
+}
+
+- (instancetype)initWithUid:(uint32_t)uid onChange:(void (^)(void))onChange {
+    self = [super initWithStyle:UITableViewStyleGrouped];
+    if (self) {
+        _uid = uid;
+        _onChange = [onChange copy];
+        NSMutableDictionary *model = [KeybindStore editingModelForUid:uid];
+        _phone = [model[@"phone"] isKindOfClass:[NSDictionary class]]
+            ? [model[@"phone"] mutableCopy] : [NSMutableDictionary dictionary];
+    }
+    return self;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Phone Key Mapping";
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return 12; }
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section { return @"Phone keypad"; }
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return @"Tap a phone key, then press a controller button. The mapping is saved per game.";
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    static int codes[] = {'1','2','3','4','5','6','7','8','9','*','0',0x7F};
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
+    NSString *key = [NSString stringWithFormat:@"%d", codes[indexPath.row]];
+    if (codes[indexPath.row] == 0x7F) key = @"#";
+    cell.textLabel.text = [NSString stringWithFormat:@"Phone %@", key];
+    NSArray *tokens = _phone[key];
+    cell.detailTextLabel.text = tokens.count ? [KeybindStore controllerComboName:tokens] : @"Not set";
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    static int codes[] = {'1','2','3','4','5','6','7','8','9','*','0',0x7F};
+    NSString *key = [NSString stringWithFormat:@"%d", codes[indexPath.row]];
+    if (codes[indexPath.row] == 0x7F) key = @"#";
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"Phone %@", key] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Press Controller Button…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        KeybindCaptureViewController *cap = [[KeybindCaptureViewController alloc] initForController:YES completion:^(NSArray *combo) {
+            if (combo.count) self->_phone[key] = combo;
+            else [self->_phone removeObjectForKey:key];
+            NSMutableDictionary *model = [KeybindStore editingModelForUid:self->_uid];
+            model[@"phone"] = self->_phone;
+            [KeybindStore saveModel:model forUid:self->_uid];
+            [self.tableView reloadData];
+            if (self->_onChange) self->_onChange();
+        }];
+        [self presentViewController:cap animated:YES completion:nil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Clear" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        [self->_phone removeObjectForKey:key];
+        NSMutableDictionary *model = [KeybindStore editingModelForUid:self->_uid];
+        model[@"phone"] = self->_phone;
+        [KeybindStore saveModel:model forUid:self->_uid];
+        [self.tableView reloadData];
+        if (self->_onChange) self->_onChange();
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+    sheet.popoverPresentationController.sourceView = cell;
+    sheet.popoverPresentationController.sourceRect = cell.bounds;
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+@end
+
 @implementation EKAKeybindActionViewController {
     EKAAction _action;
     NSString *_actKey;

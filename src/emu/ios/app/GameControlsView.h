@@ -19,6 +19,7 @@
 #import <UIKit/UIKit.h>
 
 @class GameControlsView;
+@class InputManager;
 
 @protocol GameControlsEditingDelegate <NSObject>
 // Fired while editing whenever an element is moved/scaled/added/removed or the selection changes.
@@ -56,6 +57,7 @@
 // Custom per-game layout. nil = use the built-in `layout`. Setting it makes the overlay
 // data-driven. Stored/loaded as plain arrays of dictionaries (see above).
 @property (nonatomic, copy, nullable) NSArray<NSDictionary *> *customLayout;
+// Optional phone-key remaps captured in Settings. Entries are {code, tokens}.
 
 // ---- Layout-editor mode ----
 @property (nonatomic, assign) BOOL editing;           // YES = drag/scale/select elements (no key output)

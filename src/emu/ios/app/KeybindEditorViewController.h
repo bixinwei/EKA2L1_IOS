@@ -29,4 +29,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithUid:(uint32_t)uid scopeName:(NSString *)scopeName onChange:(void (^_Nullable)(void))onChange;
 @end
 
+@interface PhoneKeyMappingViewController : UITableViewController
+- (instancetype)initWithUid:(uint32_t)uid onChange:(void (^_Nullable)(void))onChange;
+@end
+
 NS_ASSUME_NONNULL_END
