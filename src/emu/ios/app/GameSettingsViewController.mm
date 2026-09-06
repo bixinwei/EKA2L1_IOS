@@ -85,7 +85,7 @@ static NSArray<NSNumber *> *EKAScreenRotations(void) { return @[@0, @90, @180, @
     switch (section) {
         case EKASectionSystem:    return 1;   // Refresh rate
         case EKASectionScreen:    return 9;   // gravity P/L, rotation, hide island, opacity, status, auto-scale, render scale, shader
-        case EKASectionKeyLayout: return 8;   // Layout + haptics + layout editors + phone mapping + passthrough
+        case EKASectionKeyLayout: return 7;   // Layout + haptics + layout editors + passthrough
         case EKASectionReset:     return 1;
         default:                  return 0;
     }
@@ -229,12 +229,9 @@ static NSArray<NSNumber *> *EKAScreenRotations(void) { return @[@0, @90, @180, @
                 cell.textLabel.text = @"Edit Layout (Landscape)";
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             } else if (indexPath.row == 4) {
-                cell.textLabel.text = @"Per-game Keybinds";
+                cell.textLabel.text = @"Input Mapping";
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             } else if (indexPath.row == 5) {
-                cell.textLabel.text = @"Phone Key Mapping";
-                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            } else if (indexPath.row == 6) {
                 cell.textLabel.text = @"Gyroscope Passthrough";
                 cell.detailTextLabel.text = nil;
                 cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -558,8 +555,7 @@ static NSArray<NSArray<NSString *> *> *EKAFilterShaders(void) {
         else if (indexPath.row == 2) [self openLayoutEditorPortrait:YES];
         else if (indexPath.row == 3) [self openLayoutEditorPortrait:NO];
         else if (indexPath.row == 4) [self openPerGameKeybinds];
-        else if (indexPath.row == 5) [self openPhoneKeyMapping];
-        else if (indexPath.row == 6) { /* Gyroscope Passthrough — the switch handles it */ }
+        else if (indexPath.row == 5) { /* Gyroscope Passthrough — the switch handles it */ }
         else                         { /* Haptic Passthrough — the switch handles it */ }
     } else if (indexPath.section == EKASectionReset) {
         [self confirmReset];

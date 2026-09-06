@@ -206,6 +206,18 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 - (NSSet<NSNumber *> *)activeActions {
     NSMutableSet<NSNumber *> *active = [NSMutableSet set];
 
+    // A selected phone-key profile owns the controller tokens it currently uses.
+    // This prevents one physical button from also firing the legacy action mapping.
+    NSMutableSet<NSString *> *phoneTokens = [NSMutableSet set];
+    for (NSDictionary *binding in _phoneBindings) {
+        NSArray *tokens = binding[@"tokens"];
+        BOOL allHeld = tokens.count > 0;
+        for (NSString *token in tokens) {
+            if (![token isKindOfClass:[NSString class]] || ![_heldCtrl containsObject:token]) { allHeld = NO; break; }
+        }
+        if (allHeld) [phoneTokens addObjectsFromArray:tokens];
+    }
+
     for (NSDictionary *b in _kbBindings) {
         BOOL all = YES;
         for (NSNumber *k in b[@"keys"]) {
@@ -214,11 +226,16 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         if (all && [b[@"keys"] count] > 0) [active addObject:b[@"action"]];
     }
     for (NSDictionary *b in _ctrlBindings) {
+        NSArray *tokens = b[@"tokens"];
         BOOL all = YES;
-        for (NSString *t in b[@"tokens"]) {
+        for (NSString *t in tokens) {
             if (![_heldCtrl containsObject:t]) { all = NO; break; }
         }
-        if (all && [b[@"tokens"] count] > 0) [active addObject:b[@"action"]];
+        BOOL claimedByPhoneProfile = NO;
+        for (NSString *t in tokens) {
+            if ([phoneTokens containsObject:t]) { claimedByPhoneProfile = YES; break; }
+        }
+        if (all && tokens.count > 0 && !claimedByPhoneProfile) [active addObject:b[@"action"]];
     }
     return active;
 }

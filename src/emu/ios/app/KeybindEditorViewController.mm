@@ -326,14 +326,15 @@ static NSArray<NSDictionary *> *EKAPhoneMappingItems(void) {
     if (_onChange) _onChange();
 }
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 2; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 3; }
 
 - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
     return (s == 0) ? EKAActionCount : 1;
 }
 
 - (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
-    return (s == 0) ? [NSString stringWithFormat:@"%@ Bindings", _scope] : nil;
+    return (s == 0) ? [NSString stringWithFormat:@"%@ Bindings", _scope]
+         : (s == 1 ? @"Phone Controls" : nil);
 }
 
 - (NSString *)tableView:(UITableView *)t titleForFooterInSection:(NSInteger)s {
@@ -341,15 +342,23 @@ static NSArray<NSDictionary *> *EKAPhoneMappingItems(void) {
         return (_uid == 0) ? @"These bindings apply to every game (and work even when the on-screen layout is None)."
                            : @"These bindings apply only to this game, overriding the global ones.";
     }
+    if (s == 1) return @"Phone-key profiles take priority over the same controller button in the action bindings above.";
     return nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
-    if (ip.section == 1) {
+    if (ip.section == 2) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.textLabel.text = (_uid == 0) ? @"Reset to Defaults" : @"Reset to Global";
         cell.textLabel.textColor = [UIColor systemRedColor];
         cell.textLabel.textAlignment = NSTextAlignmentCenter;
+        return cell;
+    }
+    if (ip.section == 1) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
+        cell.textLabel.text = @"Phone Key Profiles";
+        cell.detailTextLabel.text = [KeybindStore activePhoneKeyProfileForUid:_uid];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
@@ -377,8 +386,16 @@ static NSArray<NSDictionary *> *EKAPhoneMappingItems(void) {
 
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [t deselectRowAtIndexPath:ip animated:YES];
-    if (ip.section == 1) {
+    if (ip.section == 2) {
         [self confirmReset];
+        return;
+    }
+    if (ip.section == 1) {
+        PhoneKeyMappingViewController *vc = [[PhoneKeyMappingViewController alloc] initWithUid:_uid onChange:^{
+            [self.tableView reloadData];
+            if (self->_onChange) self->_onChange();
+        }];
+        [self.navigationController pushViewController:vc animated:YES];
         return;
     }
     EKAKeybindActionViewController *vc =

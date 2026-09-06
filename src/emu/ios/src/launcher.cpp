@@ -734,8 +734,18 @@ namespace eka2l1::ios {
         if (scr) {
             auto &crr_mode = scr->current_mode();
 
-            eka2l1::vec2 size = crr_mode.size;
-            src.size = size;
+            // Match the desktop renderer's rotation pipeline: calculate the fitted output
+            // using the rotated display footprint, while sampling the texture in its native
+            // orientation. Swapping the source rect (the old iOS override did this) makes a
+            // 90°/270° framebuffer crop into the wrong quadrants.
+            const int requested_rotation = screen_rotation_override_.load(std::memory_order_relaxed);
+            const int rotation = requested_rotation >= 0 ? requested_rotation : scr->ui_rotation;
+            eka2l1::vec2 source_size = crr_mode.size;
+            eka2l1::vec2 size = source_size;
+            if ((rotation % 180) != 0) {
+                std::swap(size.x, size.y);
+            }
+            src.size = source_size;
 
             float width = 0;
             float height = 0;
@@ -791,10 +801,8 @@ namespace eka2l1::ios {
             // Record the emulated screen's on-screen rectangle (post-rotation footprint, anchored
             // per the current gravity) as fractions of the surface, so the frontend can fit the
             // touch controls into the empty space beside/below the guest ("auto scale buttons").
-            const int rotation = (screen_rotation_override_.load(std::memory_order_relaxed) >= 0)
-                ? screen_rotation_override_.load(std::memory_order_relaxed) : scr->ui_rotation;
-            const float on_w = (rotation % 180 == 0) ? width : height;
-            const float on_h = (rotation % 180 == 0) ? height : width;
+            const float on_w = width;
+            const float on_h = height;
             const float sw = static_cast<float>(swapchain_size.x);
             const float sh = static_cast<float>(swapchain_size.y);
             float ox = 0.0f, oy = 0.0f;
@@ -825,7 +833,6 @@ namespace eka2l1::ios {
 
             if (rotation % 180 != 0) {
                 std::swap(dest.size.x, dest.size.y);
-                std::swap(src.size.x, src.size.y);
             }
 
             src.size *= scr->display_scale_factor;
