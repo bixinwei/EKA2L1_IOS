@@ -174,6 +174,8 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     if (gp.buttonY.isPressed)        [_heldCtrl addObject:@"Y"];
     if (gp.leftShoulder.isPressed)   [_heldCtrl addObject:@"L1"];
     if (gp.rightShoulder.isPressed)  [_heldCtrl addObject:@"R1"];
+    if (gp.leftTrigger.isPressed)    [_heldCtrl addObject:@"L2"];
+    if (gp.rightTrigger.isPressed)   [_heldCtrl addObject:@"R2"];
     if (gp.buttonMenu.isPressed)     [_heldCtrl addObject:@"MENU"];
     if (gp.buttonOptions && gp.buttonOptions.isPressed) [_heldCtrl addObject:@"MENU"];
 

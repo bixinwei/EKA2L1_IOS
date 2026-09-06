@@ -79,9 +79,17 @@ NSString *EKAActionName(EKAAction action);
 //   controller: { @"tokens": NSArray<NSString*>, @"action": @(EKAAction) }
 + (NSArray<NSDictionary *> *)keyboardBindingsForUid:(uint32_t)uid;
 + (NSArray<NSDictionary *> *)controllerBindingsForUid:(uint32_t)uid;
-// Phone keypad overrides: each entry is { @"code": NSNumber (Symbian scancode),
-// @"tokens": NSArray<NSString *> } and is captured from a controller input.
+// Phone-key mapping profiles are persisted alongside the normal keybind model. Each profile
+// maps a Symbian scancode (stored as a string) to one controller-token combination.
+// The selected profile is per game (uid), so different games can use different schemes.
 + (NSArray<NSDictionary *> *)phoneBindingsForUid:(uint32_t)uid;
++ (NSArray<NSString *> *)phoneKeyProfileNamesForUid:(uint32_t)uid;
++ (NSString *)activePhoneKeyProfileForUid:(uint32_t)uid;
++ (void)setActivePhoneKeyProfile:(NSString *)name forUid:(uint32_t)uid;
++ (NSMutableDictionary *)phoneBindingMapForUid:(uint32_t)uid profileName:(nullable NSString *)name;
++ (void)savePhoneBindingMap:(NSDictionary *)bindings profileName:(NSString *)name forUid:(uint32_t)uid;
++ (BOOL)createPhoneKeyProfile:(NSString *)name copyingProfile:(nullable NSString *)sourceName forUid:(uint32_t)uid;
++ (BOOL)deletePhoneKeyProfile:(NSString *)name forUid:(uint32_t)uid;
 
 // Display helpers.
 + (NSString *)keyNameForCode:(NSInteger)hidCode;
