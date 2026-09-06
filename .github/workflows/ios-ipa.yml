@@ -1,4 +1,5 @@
 name: iOS IPA
+# Build workflow for the bixinwei/EKA2L1_IOS fork.
 
 # Builds an UNSIGNED iOS .ipa of the EKA2L1 iOS port that users can sideload
 # (SideStore / AltStore / StikJIT re-sign it on import) and publishes it as a
