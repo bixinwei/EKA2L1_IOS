@@ -57,6 +57,14 @@ enum {
 - (void)reloadBindingsForUid:(uint32_t)uid {
     _kbBindings = [KeybindStore keyboardBindingsForUid:uid];
     _ctrlBindings = [KeybindStore controllerBindingsForUid:uid];
+
+    // KeybindCaptureViewController temporarily installs its own valueChangedHandler to
+    // listen for the button being assigned. GameController exposes only one handler per
+    // pad, so reclaim it whenever an edited mapping is saved; otherwise every controller
+    // input silently stops reaching the live mapper after the first configuration edit.
+    for (GCController *controller in GCController.controllers) {
+        [self attachController:controller];
+    }
 }
 
 // Keyboard from the UIKit responder chain. _heldKeys is a plain set, so if GCKeyboard also
