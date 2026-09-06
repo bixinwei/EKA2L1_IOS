@@ -38,6 +38,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL enabled;       // forward gameplay input to the guest only when YES
 @property (nonatomic, assign) BOOL menuShown;      // when YES, directions drive menu navigation
 @property (nonatomic, assign) BOOL appsListShown;  // when YES, directions drive homescreen apps-list navigation
+// Render rotation for the active game (0/90/180/270). Gameplay directions are transformed so
+// physical/controller "up" always means up in the image currently shown to the player.
+@property (nonatomic, assign) NSInteger screenRotation;
 - (void)startObserving;
 // Reload the binding tables (global + per-game override) for the given uid. uid 0 = global only.
 - (void)reloadBindingsForUid:(uint32_t)uid;

@@ -29,6 +29,27 @@ enum {
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5
 };
 
+static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
+    NSInteger r = ((rotation % 360) + 360) % 360;
+    if (r == 0 || (scancode != SC_UP && scancode != SC_DOWN && scancode != SC_LEFT && scancode != SC_RIGHT)) return scancode;
+    if (r == 180) {
+        if (scancode == SC_UP) return SC_DOWN;
+        if (scancode == SC_DOWN) return SC_UP;
+        if (scancode == SC_LEFT) return SC_RIGHT;
+        return SC_LEFT;
+    }
+    if (r == 90) {
+        if (scancode == SC_UP) return SC_LEFT;
+        if (scancode == SC_DOWN) return SC_RIGHT;
+        if (scancode == SC_LEFT) return SC_DOWN;
+        return SC_UP;
+    }
+    if (scancode == SC_UP) return SC_RIGHT;
+    if (scancode == SC_DOWN) return SC_LEFT;
+    if (scancode == SC_LEFT) return SC_UP;
+    return SC_DOWN;
+}
+
 // ---- Built-in -> editable custom-layout conversion ------------------------
 // Normalized element builders (cx/cy are fractions of width/height, size of min(W,H)). Used by
 // +customLayoutForBuiltinLayout: to render a built-in layout as editable custom elements.
@@ -176,6 +197,15 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     if (reachV <= 0) return 1.0;
     CGFloat bottomBand = H - CGRectGetMaxY(_guestRect);
     return MAX(kMin, MIN(1.0, (bottomBand - gap) / reachV));
+}
+
+- (void)setScreenRotation:(NSInteger)screenRotation {
+    NSInteger normalized = (screenRotation == 90 || screenRotation == 180 || screenRotation == 270) ? screenRotation : 0;
+    if (_screenRotation == normalized) return;
+    // A held touch must be released using the old rotation to avoid leaving a guest
+    // direction stuck down, then subsequent touches use the new screen-relative mapping.
+    [self releaseAllHeld];
+    _screenRotation = normalized;
 }
 
 - (void)setLayout:(NSInteger)layout {
@@ -548,7 +578,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 - (void)pressCodes:(NSArray<NSNumber *> *)codes {
     for (NSNumber *code in codes) {
         if (![_held containsObject:code]) {
-            eka2l1::ios::bridge::key(code.intValue, true);
+            eka2l1::ios::bridge::key(EKARotatedTouchDirectionScancode(code.intValue, _screenRotation), true);
             [self fireHaptic];   // only on a genuine new key-down
         }
         [_held addObject:code];
@@ -589,14 +619,14 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     for (NSNumber *code in codes) {
         [_held removeObject:code];
         if (![_held containsObject:code]) {
-            eka2l1::ios::bridge::key(code.intValue, false);
+            eka2l1::ios::bridge::key(EKARotatedTouchDirectionScancode(code.intValue, _screenRotation), false);
         }
     }
 }
 
 - (void)releaseAllHeld {
     for (NSNumber *code in [_held allObjects]) {
-        eka2l1::ios::bridge::key(code.intValue, false);
+        eka2l1::ios::bridge::key(EKARotatedTouchDirectionScancode(code.intValue, _screenRotation), false);
     }
     [_held removeAllObjects];
     [_touchToControl removeAllObjects];

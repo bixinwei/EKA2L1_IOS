@@ -43,6 +43,8 @@
 @interface GameControlsView : UIView
 @property (nonatomic, assign) NSInteger layout;       // 0 = none, 1..4 (built-in)
 @property (nonatomic, assign) CGFloat overlayOpacity; // 0..1, scales the drawn controls' alpha
+// Applies the active display rotation to directional touch input.
+@property (nonatomic, assign) NSInteger screenRotation;
 
 // Haptic feedback: when YES, a short impact fires on every new key-down (button taps, slide-to-switch
 // transitions and joystick direction changes). Off by default. No-op on devices without a Taptic Engine.
@@ -57,7 +59,6 @@
 // Custom per-game layout. nil = use the built-in `layout`. Setting it makes the overlay
 // data-driven. Stored/loaded as plain arrays of dictionaries (see above).
 @property (nonatomic, copy, nullable) NSArray<NSDictionary *> *customLayout;
-// Optional phone-key remaps captured in Settings. Entries are {code, tokens}.
 
 // ---- Layout-editor mode ----
 @property (nonatomic, assign) BOOL editing;           // YES = drag/scale/select elements (no key output)

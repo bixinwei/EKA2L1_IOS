@@ -31,6 +31,28 @@ enum {
     SC_EXTRA_POUND = 0x7F, SC_EXTRA_STAR = '*'
 };
 
+static int EKARotatedDirectionScancode(int scancode, NSInteger rotation) {
+    NSInteger r = ((rotation % 360) + 360) % 360;
+    if (r == 0 || (scancode != SC_UP && scancode != SC_DOWN && scancode != SC_LEFT && scancode != SC_RIGHT)) return scancode;
+    if (r == 180) {
+        if (scancode == SC_UP) return SC_DOWN;
+        if (scancode == SC_DOWN) return SC_UP;
+        if (scancode == SC_LEFT) return SC_RIGHT;
+        return SC_LEFT;
+    }
+    if (r == 90) {
+        if (scancode == SC_UP) return SC_LEFT;
+        if (scancode == SC_DOWN) return SC_RIGHT;
+        if (scancode == SC_LEFT) return SC_DOWN;
+        return SC_UP;
+    }
+    // 270°: inverse of the 90° transform.
+    if (scancode == SC_UP) return SC_RIGHT;
+    if (scancode == SC_DOWN) return SC_LEFT;
+    if (scancode == SC_LEFT) return SC_UP;
+    return SC_DOWN;
+}
+
 @implementation InputManager {
     NSMutableSet<NSNumber *> *_heldKeys;     // currently-down keyboard GCKeyCodes
     NSMutableSet<NSString *> *_heldCtrl;     // currently-active controller tokens (see readGamepad)
@@ -251,6 +273,15 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     [self recompute];
 }
 
+- (void)setScreenRotation:(NSInteger)screenRotation {
+    NSInteger normalized = (screenRotation == 90 || screenRotation == 180 || screenRotation == 270) ? screenRotation : 0;
+    if (_screenRotation == normalized) return;
+    // Release with the old transform, then re-press held actions using the new one.
+    [self releaseAll];
+    _screenRotation = normalized;
+    [self recompute];
+}
+
 - (BOOL)action:(EKAAction)a newlyActiveIn:(NSSet<NSNumber *> *)now {
     return [now containsObject:@(a)] && ![_prevActive containsObject:@(a)];
 }
@@ -279,7 +310,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     NSMutableSet<NSNumber *> *desired = [NSMutableSet set];
     for (NSNumber *actNum in active) {
         for (NSNumber *sc in ScancodesForAction((EKAAction)actNum.integerValue)) {
-            [desired addObject:sc];
+            [desired addObject:@(EKARotatedDirectionScancode(sc.intValue, _screenRotation))];
         }
     }
 
