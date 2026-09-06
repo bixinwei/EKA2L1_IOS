@@ -28,160 +28,6 @@
                            onSave:(void (^)(void))onSave;
 @end
 
-@interface PhoneKeyMappingViewController ()
-@end
-
-static NSArray<NSDictionary *> *EKAPhoneMappingItems(void) {
-    return @[
-        @{ @"key": @"164", @"title": @"Left Softkey" }, @{ @"key": @"165", @"title": @"Right Softkey" },
-        @{ @"key": @"16", @"title": @"Up" }, @{ @"key": @"17", @"title": @"Down" },
-        @{ @"key": @"14", @"title": @"Left" }, @{ @"key": @"15", @"title": @"Right" },
-        @{ @"key": @"167", @"title": @"Centre / Select" },
-        @{ @"key": @"menu", @"title": @"Menu" }, @{ @"key": @"clear", @"title": @"Clear" },
-        @{ @"key": @"1", @"title": @"Phone 1" }, @{ @"key": @"2", @"title": @"Phone 2" }, @{ @"key": @"3", @"title": @"Phone 3" },
-        @{ @"key": @"4", @"title": @"Phone 4" }, @{ @"key": @"5", @"title": @"Phone 5" }, @{ @"key": @"6", @"title": @"Phone 6" },
-        @{ @"key": @"7", @"title": @"Phone 7" }, @{ @"key": @"8", @"title": @"Phone 8" }, @{ @"key": @"9", @"title": @"Phone 9" },
-        @{ @"key": @"*", @"title": @"Phone *" }, @{ @"key": @"0", @"title": @"Phone 0" }, @{ @"key": @"#", @"title": @"Phone #" }
-    ];
-}
-
-@implementation PhoneKeyMappingViewController {
-    uint32_t _uid;
-    void (^_onChange)(void);
-    NSMutableDictionary *_phone;
-    NSArray<NSString *> *_profileNames;
-    NSString *_activeProfile;
-}
-
-- (instancetype)initWithUid:(uint32_t)uid onChange:(void (^)(void))onChange {
-    self = [super initWithStyle:UITableViewStyleGrouped];
-    if (self) {
-        _uid = uid;
-        _onChange = [onChange copy];
-        _profileNames = [KeybindStore phoneKeyProfileNamesForUid:uid];
-        _activeProfile = [KeybindStore activePhoneKeyProfileForUid:uid];
-        _phone = [KeybindStore phoneBindingMapForUid:uid profileName:_activeProfile];
-    }
-    return self;
-}
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.title = @"Phone Key Mapping";
-}
-
-- (void)reloadProfiles {
-    _profileNames = [KeybindStore phoneKeyProfileNamesForUid:_uid];
-    _activeProfile = [KeybindStore activePhoneKeyProfileForUid:_uid];
-    _phone = [KeybindStore phoneBindingMapForUid:_uid profileName:_activeProfile];
-}
-
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 2; }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return section == 0 ? _profileNames.count + 1 : EKAPhoneMappingItems().count;
-}
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section == 0 ? @"Mapping Profiles" : @"Phone Keys";
-}
-- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return section == 0 ? @"Profiles are saved per game. Create one for each controller or game layout, then select the active profile."
-                        : @"Tap a phone key, then press the controller button or combination that should trigger it.";
-}
-
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-    if (indexPath.section == 0) {
-        if (indexPath.row == _profileNames.count) {
-            cell.textLabel.text = @"Create New Profile…";
-            cell.textLabel.textColor = [UIColor systemBlueColor];
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            return cell;
-        }
-        NSString *name = _profileNames[indexPath.row];
-        cell.textLabel.text = name;
-        cell.detailTextLabel.text = [name isEqualToString:_activeProfile] ? @"Active" : nil;
-        cell.accessoryType = [name isEqualToString:_activeProfile] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
-        return cell;
-    }
-    NSDictionary *item = EKAPhoneMappingItems()[indexPath.row];
-    NSString *key = item[@"key"];
-    cell.textLabel.text = item[@"title"];
-    NSArray *tokens = _phone[key];
-    cell.detailTextLabel.text = tokens.count ? [KeybindStore controllerComboName:tokens] : @"Not set";
-    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    return cell;
-}
-
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (indexPath.section == 0) {
-        if (indexPath.row < _profileNames.count) {
-            [KeybindStore setActivePhoneKeyProfile:_profileNames[indexPath.row] forUid:_uid];
-            [self reloadProfiles];
-            [self.tableView reloadData];
-            if (_onChange) _onChange();
-            return;
-        }
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"New Mapping Profile" message:@"The current profile will be copied so you can adjust it." preferredStyle:UIAlertControllerStyleAlert];
-        [alert addTextFieldWithConfigurationHandler:^(UITextField *field) { field.placeholder = @"Profile name"; }];
-        [alert addAction:[UIAlertAction actionWithTitle:@"Create" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            NSString *name = alert.textFields.firstObject.text;
-            if (![KeybindStore createPhoneKeyProfile:name copyingProfile:self->_activeProfile forUid:self->_uid]) {
-                UIAlertController *error = [UIAlertController alertControllerWithTitle:@"Cannot Create Profile" message:@"Use a unique, non-empty profile name." preferredStyle:UIAlertControllerStyleAlert];
-                [error addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-                [self presentViewController:error animated:YES completion:nil];
-                return;
-            }
-            [self reloadProfiles];
-            [self.tableView reloadData];
-            if (self->_onChange) self->_onChange();
-        }]];
-        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-        [self presentViewController:alert animated:YES completion:nil];
-        return;
-    }
-    NSDictionary *item = EKAPhoneMappingItems()[indexPath.row];
-    NSString *key = item[@"key"];
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:item[@"title"] message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Press Controller Button…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        KeybindCaptureViewController *cap = [[KeybindCaptureViewController alloc] initForController:YES completion:^(NSArray *combo) {
-            if (combo.count) self->_phone[key] = combo;
-            else [self->_phone removeObjectForKey:key];
-            [KeybindStore savePhoneBindingMap:self->_phone profileName:self->_activeProfile forUid:self->_uid];
-            [self.tableView reloadData];
-            if (self->_onChange) self->_onChange();
-        }];
-        [self presentViewController:cap animated:YES completion:nil];
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Clear" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
-        [self->_phone removeObjectForKey:key];
-        [KeybindStore savePhoneBindingMap:self->_phone profileName:self->_activeProfile forUid:self->_uid];
-        [self.tableView reloadData];
-        if (self->_onChange) self->_onChange();
-    }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
-    sheet.popoverPresentationController.sourceView = cell;
-    sheet.popoverPresentationController.sourceRect = cell.bounds;
-    [self presentViewController:sheet animated:YES completion:nil];
-}
-
-- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath API_AVAILABLE(ios(11.0)) {
-    if (indexPath.section != 0 || indexPath.row >= _profileNames.count || _profileNames.count <= 1) return nil;
-    NSString *name = _profileNames[indexPath.row];
-    UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"Delete" handler:^(UIContextualAction *action, UIView *view, void (^complete)(BOOL)) {
-        BOOL deleted = [KeybindStore deletePhoneKeyProfile:name forUid:self->_uid];
-        if (deleted) {
-            [self reloadProfiles];
-            [self.tableView reloadData];
-            if (self->_onChange) self->_onChange();
-        }
-        complete(deleted);
-    }];
-    return [UISwipeActionsConfiguration configurationWithActions:@[deleteAction]];
-}
-@end
-
 @implementation EKAKeybindActionViewController {
     EKAAction _action;
     NSString *_actKey;
@@ -326,15 +172,14 @@ static NSArray<NSDictionary *> *EKAPhoneMappingItems(void) {
     if (_onChange) _onChange();
 }
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 3; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)t { return 2; }
 
 - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
     return (s == 0) ? EKAActionCount : 1;
 }
 
 - (NSString *)tableView:(UITableView *)t titleForHeaderInSection:(NSInteger)s {
-    return (s == 0) ? [NSString stringWithFormat:@"%@ Bindings", _scope]
-         : (s == 1 ? @"Phone Controls" : nil);
+    return (s == 0) ? [NSString stringWithFormat:@"%@ Bindings", _scope] : nil;
 }
 
 - (NSString *)tableView:(UITableView *)t titleForFooterInSection:(NSInteger)s {
@@ -342,23 +187,15 @@ static NSArray<NSDictionary *> *EKAPhoneMappingItems(void) {
         return (_uid == 0) ? @"These bindings apply to every game (and work even when the on-screen layout is None)."
                            : @"These bindings apply only to this game, overriding the global ones.";
     }
-    if (s == 1) return @"Phone-key profiles take priority over the same controller button in the action bindings above.";
     return nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
-    if (ip.section == 2) {
+    if (ip.section == 1) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.textLabel.text = (_uid == 0) ? @"Reset to Defaults" : @"Reset to Global";
         cell.textLabel.textColor = [UIColor systemRedColor];
         cell.textLabel.textAlignment = NSTextAlignmentCenter;
-        return cell;
-    }
-    if (ip.section == 1) {
-        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-        cell.textLabel.text = @"Phone Key Profiles";
-        cell.detailTextLabel.text = [KeybindStore activePhoneKeyProfileForUid:_uid];
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
@@ -386,16 +223,8 @@ static NSArray<NSDictionary *> *EKAPhoneMappingItems(void) {
 
 - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [t deselectRowAtIndexPath:ip animated:YES];
-    if (ip.section == 2) {
-        [self confirmReset];
-        return;
-    }
     if (ip.section == 1) {
-        PhoneKeyMappingViewController *vc = [[PhoneKeyMappingViewController alloc] initWithUid:_uid onChange:^{
-            [self.tableView reloadData];
-            if (self->_onChange) self->_onChange();
-        }];
-        [self.navigationController pushViewController:vc animated:YES];
+        [self confirmReset];
         return;
     }
     EKAKeybindActionViewController *vc =

@@ -26,16 +26,10 @@
 enum {
     SC_UP = 0x10, SC_DOWN = 0x11, SC_LEFT = 0x0E, SC_RIGHT = 0x0F,
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
+    SC_PHONE_MENU = 0x94, SC_CLEAR = 0x01,
     // Extra N-Gage helper actions send the same keypad scancodes Android's overlay uses.
     SC_EXTRA_POUND = 0x7F, SC_EXTRA_STAR = '*'
 };
-
-static int PhoneScancodeForCode(NSInteger code) {
-    if (code >= '0' && code <= '9') return (int)code;
-    if (code == '*') return SC_EXTRA_STAR;
-    if (code == '#' || code == 0x7F) return SC_EXTRA_POUND;
-    return -1;
-}
 
 @implementation InputManager {
     NSMutableSet<NSNumber *> *_heldKeys;     // currently-down keyboard GCKeyCodes
@@ -44,7 +38,6 @@ static int PhoneScancodeForCode(NSInteger code) {
     NSSet<NSNumber *> *_prevActive;           // actions active last recompute (edge detection)
     NSArray<NSDictionary *> *_kbBindings;     // { keys:[GCKeyCode], action:EKAAction }
     NSArray<NSDictionary *> *_ctrlBindings;   // { tokens:[NSString], action:EKAAction }
-    NSArray<NSDictionary *> *_phoneBindings;  // { code:NSNumber, tokens:[NSString] }
 }
 
 - (instancetype)init {
@@ -64,7 +57,6 @@ static int PhoneScancodeForCode(NSInteger code) {
 - (void)reloadBindingsForUid:(uint32_t)uid {
     _kbBindings = [KeybindStore keyboardBindingsForUid:uid];
     _ctrlBindings = [KeybindStore controllerBindingsForUid:uid];
-    _phoneBindings = [KeybindStore phoneBindingsForUid:uid];
 }
 
 // Keyboard from the UIKit responder chain. _heldKeys is a plain set, so if GCKeyboard also
@@ -99,6 +91,18 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         case EKAActionMenu:      return @[];   // UI action, no scancode
         case EKAActionAKey:      return @[@(SC_EXTRA_POUND)];
         case EKAActionBKey:      return @[@(SC_EXTRA_STAR)];
+        case EKAActionNum0:      return @[@('0')];
+        case EKAActionNum1:      return @[@('1')];
+        case EKAActionNum2:      return @[@('2')];
+        case EKAActionNum3:      return @[@('3')];
+        case EKAActionNum4:      return @[@('4')];
+        case EKAActionNum5:      return @[@('5')];
+        case EKAActionNum6:      return @[@('6')];
+        case EKAActionNum7:      return @[@('7')];
+        case EKAActionNum8:      return @[@('8')];
+        case EKAActionNum9:      return @[@('9')];
+        case EKAActionPhoneMenu: return @[@(SC_PHONE_MENU)];
+        case EKAActionClear:     return @[@(SC_CLEAR)];
         case EKAActionCount:     return @[];
     }
     return @[];
@@ -206,18 +210,6 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 - (NSSet<NSNumber *> *)activeActions {
     NSMutableSet<NSNumber *> *active = [NSMutableSet set];
 
-    // A selected phone-key profile owns the controller tokens it currently uses.
-    // This prevents one physical button from also firing the legacy action mapping.
-    NSMutableSet<NSString *> *phoneTokens = [NSMutableSet set];
-    for (NSDictionary *binding in _phoneBindings) {
-        NSArray *tokens = binding[@"tokens"];
-        BOOL allHeld = tokens.count > 0;
-        for (NSString *token in tokens) {
-            if (![token isKindOfClass:[NSString class]] || ![_heldCtrl containsObject:token]) { allHeld = NO; break; }
-        }
-        if (allHeld) [phoneTokens addObjectsFromArray:tokens];
-    }
-
     for (NSDictionary *b in _kbBindings) {
         BOOL all = YES;
         for (NSNumber *k in b[@"keys"]) {
@@ -231,11 +223,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         for (NSString *t in tokens) {
             if (![_heldCtrl containsObject:t]) { all = NO; break; }
         }
-        BOOL claimedByPhoneProfile = NO;
-        for (NSString *t in tokens) {
-            if ([phoneTokens containsObject:t]) { claimedByPhoneProfile = YES; break; }
-        }
-        if (all && tokens.count > 0 && !claimedByPhoneProfile) [active addObject:b[@"action"]];
+        if (all && tokens.count > 0) [active addObject:b[@"action"]];
     }
     return active;
 }
@@ -287,22 +275,6 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         }
     }
 
-    // A phone-key mapping is independent of the action table: when all captured
-    // controller tokens are held, emit the corresponding keypad scancode. This
-    // keeps mappings working even when the on-screen overlay is disabled.
-    for (NSDictionary *binding in _phoneBindings) {
-        NSArray *tokens = binding[@"tokens"];
-        NSNumber *code = binding[@"code"];
-        if (![tokens isKindOfClass:[NSArray class]] || !tokens.count || ![code isKindOfClass:[NSNumber class]]) continue;
-        BOOL allHeld = YES;
-        for (NSString *token in tokens) {
-            if (![token isKindOfClass:[NSString class]] || ![_heldCtrl containsObject:token]) { allHeld = NO; break; }
-        }
-        if (allHeld) {
-            int scancode = PhoneScancodeForCode(code.integerValue);
-            if (scancode >= 0) [desired addObject:@(scancode)];
-        }
-    }
 
     // Press newly-desired scancodes, release no-longer-desired ones.
     for (NSNumber *sc in desired) {

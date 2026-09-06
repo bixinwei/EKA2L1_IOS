@@ -510,12 +510,6 @@ static NSArray<NSArray<NSString *> *> *EKAFilterShaders(void) {
     [self.navigationController pushViewController:vc animated:YES];
 }
 
-- (void)openPhoneKeyMapping {
-    PhoneKeyMappingViewController *vc = [[PhoneKeyMappingViewController alloc] initWithUid:_uid
-        onChange:^{ [self.settingsDelegate gameSettingsDidChangeForUid:self->_uid]; }];
-    [self.navigationController pushViewController:vc animated:YES];
-}
-
 - (void)showComingSoon:(NSString *)feature {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:feature
         message:@"This is coming in a later update."

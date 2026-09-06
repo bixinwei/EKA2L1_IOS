@@ -32,51 +32,27 @@ NSString *EKAActionName(EKAAction action) {
         case EKAActionFire:      return @"Fire";
         case EKAActionSoftLeft:  return @"Left Softkey (L)";
         case EKAActionSoftRight: return @"Right Softkey (R)";
-        case EKAActionMenu:      return @"Open Menu";
-        case EKAActionAKey:      return @"# — N-Gage Remap";
-        case EKAActionBKey:      return @"* — N-Gage Remap";
+        case EKAActionMenu:      return @"Open Emulator Menu";
+        case EKAActionAKey:      return @"Phone #";
+        case EKAActionBKey:      return @"Phone *";
+        case EKAActionNum0:      return @"Phone 0";
+        case EKAActionNum1:      return @"Phone 1";
+        case EKAActionNum2:      return @"Phone 2";
+        case EKAActionNum3:      return @"Phone 3";
+        case EKAActionNum4:      return @"Phone 4";
+        case EKAActionNum5:      return @"Phone 5";
+        case EKAActionNum6:      return @"Phone 6";
+        case EKAActionNum7:      return @"Phone 7";
+        case EKAActionNum8:      return @"Phone 8";
+        case EKAActionNum9:      return @"Phone 9";
+        case EKAActionPhoneMenu: return @"Phone Menu";
+        case EKAActionClear:     return @"Phone Clear";
         default:                 return @"?";
     }
 }
 
 static NSDictionary *Entry(NSArray *kb, NSArray *ctrl) {
     return @{ @"kb": kb, @"ctrl": ctrl };
-}
-
-// Keep phone mappings in named profiles rather than a single anonymous dictionary. The
-// legacy `phone` dictionary is migrated in memory and written back the next time a profile
-// is edited, so existing users do not lose mappings.
-static NSMutableDictionary *EKAEnsurePhoneProfiles(NSMutableDictionary *model) {
-    NSMutableDictionary *profiles = [model[@"phoneKeyProfiles"] isKindOfClass:[NSDictionary class]]
-        ? [model[@"phoneKeyProfiles"] mutableCopy] : nil;
-    if (!profiles) {
-        NSDictionary *legacy = [model[@"phone"] isKindOfClass:[NSDictionary class]] ? model[@"phone"] : @{};
-        profiles = [@{ @"Default": [legacy mutableCopy] } mutableCopy];
-        [model removeObjectForKey:@"phone"];
-    }
-    if (!profiles.count) profiles[@"Default"] = [NSMutableDictionary dictionary];
-    for (NSString *name in [profiles allKeys]) {
-        if (![profiles[name] isKindOfClass:[NSDictionary class]]) profiles[name] = [NSMutableDictionary dictionary];
-        else profiles[name] = [profiles[name] mutableCopy];
-    }
-    NSString *active = [model[@"activePhoneKeyProfile"] isKindOfClass:[NSString class]]
-        ? model[@"activePhoneKeyProfile"] : nil;
-    if (!active.length || !profiles[active]) {
-        active = [[profiles.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)] firstObject] ?: @"Default";
-    }
-    model[@"phoneKeyProfiles"] = profiles;
-    model[@"activePhoneKeyProfile"] = active;
-    return profiles;
-}
-
-static NSInteger EKAPhoneCodeForStoredKey(NSString *key) {
-    if ([key isEqualToString:@"menu"]) return 0x94;
-    if ([key isEqualToString:@"clear"]) return 0x01;
-    if (key.length == 1) {
-        unichar c = [key characterAtIndex:0];
-        if ((c >= '0' && c <= '9') || c == '*' || c == '#') return c == '#' ? 0x7F : c;
-    }
-    return key.integerValue;
 }
 
 @implementation KeybindStore
@@ -113,6 +89,13 @@ static NSInteger EKAPhoneCodeForStoredKey(NSString *key) {
 }
 
 + (void)migrateModelIfNeeded:(NSMutableDictionary *)model {
+    // Phone Controls was an experimental second mapping system. It is deliberately
+    // retired in favour of the single action table below, so stale profiles cannot
+    // shadow or confuse a user's normal bindings after an upgrade.
+    [model removeObjectForKey:@"phone"];
+    [model removeObjectForKey:@"phoneKeyProfiles"];
+    [model removeObjectForKey:@"activePhoneKeyProfile"];
+
     NSString *actionKey = @(EKAActionAKey).stringValue;
     NSMutableDictionary *entry = model[actionKey];
     if (![entry isKindOfClass:[NSDictionary class]]) {
@@ -169,6 +152,18 @@ static NSInteger EKAPhoneCodeForStoredKey(NSString *key) {
     // N-Gage helper *: same scancode as Android's keypad * overlay, keyboard keypad-* + X,
     // controller B.
     m[@(EKAActionBKey).stringValue]      = Entry(@[@[KC(GCKeyCodeKeypadAsterisk)], @[KC(GCKeyCodeKeyX)]], @[@[@"B"]]);
+    m[@(EKAActionNum0).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum1).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum2).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum3).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum4).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum5).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum6).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum7).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum8).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum9).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionPhoneMenu).stringValue] = Entry(@[], @[]);
+    m[@(EKAActionClear).stringValue]     = Entry(@[], @[]);
 #undef KC
     return m;
 }
@@ -230,81 +225,6 @@ static NSInteger EKAPhoneCodeForStoredKey(NSString *key) {
 }
 + (NSArray<NSDictionary *> *)controllerBindingsForUid:(uint32_t)uid {
     return [self flatten:@"ctrl" out:@"tokens" forUid:uid];
-}
-
-+ (NSArray<NSDictionary *> *)phoneBindingsForUid:(uint32_t)uid {
-    NSDictionary *phone = [self phoneBindingMapForUid:uid profileName:nil];
-    NSMutableArray *out = [NSMutableArray array];
-    [phone enumerateKeysAndObjectsUsingBlock:^(NSString *code, id value, BOOL *stop) {
-        if ([value isKindOfClass:[NSArray class]] && [value count]) {
-            [out addObject:@{ @"code": @(EKAPhoneCodeForStoredKey(code)), @"tokens": value }];
-        }
-    }];
-    return out;
-}
-
-+ (NSArray<NSString *> *)phoneKeyProfileNamesForUid:(uint32_t)uid {
-    NSMutableDictionary *model = [self effectiveModelForUid:uid];
-    return [[EKAEnsurePhoneProfiles(model).allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)] copy];
-}
-
-+ (NSString *)activePhoneKeyProfileForUid:(uint32_t)uid {
-    NSMutableDictionary *model = [self effectiveModelForUid:uid];
-    EKAEnsurePhoneProfiles(model);
-    return model[@"activePhoneKeyProfile"];
-}
-
-+ (void)setActivePhoneKeyProfile:(NSString *)name forUid:(uint32_t)uid {
-    NSMutableDictionary *model = [self editingModelForUid:uid];
-    NSMutableDictionary *profiles = EKAEnsurePhoneProfiles(model);
-    if (name.length && profiles[name]) {
-        model[@"activePhoneKeyProfile"] = name;
-        [self saveModel:model forUid:uid];
-    }
-}
-
-+ (NSMutableDictionary *)phoneBindingMapForUid:(uint32_t)uid profileName:(NSString *)name {
-    NSMutableDictionary *model = [self effectiveModelForUid:uid];
-    NSMutableDictionary *profiles = EKAEnsurePhoneProfiles(model);
-    NSString *selected = name.length && profiles[name] ? name : model[@"activePhoneKeyProfile"];
-    return [profiles[selected] mutableCopy] ?: [NSMutableDictionary dictionary];
-}
-
-+ (void)savePhoneBindingMap:(NSDictionary *)bindings profileName:(NSString *)name forUid:(uint32_t)uid {
-    if (!name.length || ![bindings isKindOfClass:[NSDictionary class]]) return;
-    NSMutableDictionary *model = [self editingModelForUid:uid];
-    NSMutableDictionary *profiles = EKAEnsurePhoneProfiles(model);
-    profiles[name] = [bindings mutableCopy];
-    model[@"phoneKeyProfiles"] = profiles;
-    if (!model[@"activePhoneKeyProfile"]) model[@"activePhoneKeyProfile"] = name;
-    [self saveModel:model forUid:uid];
-}
-
-+ (BOOL)createPhoneKeyProfile:(NSString *)name copyingProfile:(NSString *)sourceName forUid:(uint32_t)uid {
-    NSString *trimmed = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (!trimmed.length) return NO;
-    NSMutableDictionary *model = [self editingModelForUid:uid];
-    NSMutableDictionary *profiles = EKAEnsurePhoneProfiles(model);
-    if (profiles[trimmed]) return NO;
-    NSString *source = sourceName.length && profiles[sourceName] ? sourceName : model[@"activePhoneKeyProfile"];
-    profiles[trimmed] = [profiles[source] mutableCopy] ?: [NSMutableDictionary dictionary];
-    model[@"phoneKeyProfiles"] = profiles;
-    model[@"activePhoneKeyProfile"] = trimmed;
-    [self saveModel:model forUid:uid];
-    return YES;
-}
-
-+ (BOOL)deletePhoneKeyProfile:(NSString *)name forUid:(uint32_t)uid {
-    NSMutableDictionary *model = [self editingModelForUid:uid];
-    NSMutableDictionary *profiles = EKAEnsurePhoneProfiles(model);
-    if (!profiles[name] || profiles.count <= 1) return NO;
-    [profiles removeObjectForKey:name];
-    if ([model[@"activePhoneKeyProfile"] isEqualToString:name]) {
-        model[@"activePhoneKeyProfile"] = [[profiles.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)] firstObject];
-    }
-    model[@"phoneKeyProfiles"] = profiles;
-    [self saveModel:model forUid:uid];
-    return YES;
 }
 
 // ---- Display names --------------------------------------------------------

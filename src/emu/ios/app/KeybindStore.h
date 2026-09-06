@@ -20,9 +20,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-// Emulator input actions. Cardinals map to one Symbian scancode; diagonals to two; MENU is a
-// UI action (open the in-game menu). The on-screen layout, hardware keyboard and game
-// controller all resolve to these.
+// Emulator input actions. The original action editor is the single source of truth for
+// keyboard and controller mappings, including every physical phone key.
 typedef NS_ENUM(NSInteger, EKAAction) {
     EKAActionUp = 0,
     EKAActionDown,
@@ -35,9 +34,21 @@ typedef NS_ENUM(NSInteger, EKAAction) {
     EKAActionFire,
     EKAActionSoftLeft,
     EKAActionSoftRight,
-    EKAActionMenu,
-    EKAActionAKey,    // N-Gage helper: sends keypad #. Appended so saved keybind files stay compatible.
-    EKAActionBKey,    // N-Gage helper: sends keypad *.
+    EKAActionMenu,          // Opens the emulator's own in-game menu (not a phone key).
+    EKAActionAKey,          // Sends phone keypad #. Kept at its historic value for saved bindings.
+    EKAActionBKey,          // Sends phone keypad *. Kept at its historic value for saved bindings.
+    EKAActionNum0,
+    EKAActionNum1,
+    EKAActionNum2,
+    EKAActionNum3,
+    EKAActionNum4,
+    EKAActionNum5,
+    EKAActionNum6,
+    EKAActionNum7,
+    EKAActionNum8,
+    EKAActionNum9,
+    EKAActionPhoneMenu,
+    EKAActionClear,
     EKAActionCount
 };
 
@@ -79,17 +90,6 @@ NSString *EKAActionName(EKAAction action);
 //   controller: { @"tokens": NSArray<NSString*>, @"action": @(EKAAction) }
 + (NSArray<NSDictionary *> *)keyboardBindingsForUid:(uint32_t)uid;
 + (NSArray<NSDictionary *> *)controllerBindingsForUid:(uint32_t)uid;
-// Phone-key mapping profiles are persisted alongside the normal keybind model. Each profile
-// maps a Symbian scancode (stored as a string) to one controller-token combination.
-// The selected profile is per game (uid), so different games can use different schemes.
-+ (NSArray<NSDictionary *> *)phoneBindingsForUid:(uint32_t)uid;
-+ (NSArray<NSString *> *)phoneKeyProfileNamesForUid:(uint32_t)uid;
-+ (NSString *)activePhoneKeyProfileForUid:(uint32_t)uid;
-+ (void)setActivePhoneKeyProfile:(NSString *)name forUid:(uint32_t)uid;
-+ (NSMutableDictionary *)phoneBindingMapForUid:(uint32_t)uid profileName:(nullable NSString *)name;
-+ (void)savePhoneBindingMap:(NSDictionary *)bindings profileName:(NSString *)name forUid:(uint32_t)uid;
-+ (BOOL)createPhoneKeyProfile:(NSString *)name copyingProfile:(nullable NSString *)sourceName forUid:(uint32_t)uid;
-+ (BOOL)deletePhoneKeyProfile:(NSString *)name forUid:(uint32_t)uid;
 
 // Display helpers.
 + (NSString *)keyNameForCode:(NSInteger)hidCode;
