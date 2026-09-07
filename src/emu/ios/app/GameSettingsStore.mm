@@ -39,6 +39,7 @@
         _hapticPassthrough = YES; // on by default; pass the guest's vibration requests to the Taptic Engine
         _renderScale = 0.0;   // 0 = Native (the screen's own scale)
         _filterShader = @"";  // empty = upscale shader OFF
+        _visualEnhancement = NO;
     }
     return self;
 }
@@ -127,6 +128,9 @@
     if ([dict[@"filterShader"] isKindOfClass:[NSString class]]) {
         s.filterShader = dict[@"filterShader"];
     }
+    if (dict[@"visualEnhancement"] != nil) {
+        s.visualEnhancement = [dict[@"visualEnhancement"] boolValue];
+    }
     if ([dict[@"customLayoutPortrait"] isKindOfClass:[NSArray class]]) {
         s.customLayoutPortrait = dict[@"customLayoutPortrait"];
     }
@@ -152,7 +156,8 @@
         @"gyroPassthrough": @(settings.gyroPassthrough),
         @"hapticPassthrough": @(settings.hapticPassthrough),
         @"renderScale": @(settings.renderScale),
-        @"filterShader": (settings.filterShader ?: @"")
+        @"filterShader": (settings.filterShader ?: @""),
+        @"visualEnhancement": @(settings.visualEnhancement)
     } mutableCopy];
     if (settings.customLayoutPortrait) dict[@"customLayoutPortrait"] = settings.customLayoutPortrait;
     if (settings.customLayoutLandscape) dict[@"customLayoutLandscape"] = settings.customLayoutLandscape;

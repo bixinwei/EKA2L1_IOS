@@ -690,13 +690,19 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
 
 // ---- Launch / exit --------------------------------------------------------
 
+// The visual enhancement is a purpose-built GLES post-process bundled with the iOS port.
+// It is selected here rather than overloading the user's technical Upscale Shader preference.
+- (NSString *)effectiveFilterShaderForSettings:(EKAGameSettings *)settings {
+    return settings.visualEnhancement ? @"fantasy-crt" : (settings.filterShader ?: @"");
+}
+
 - (void)launchAppUid:(std::uint32_t)uid {
     self.currentGameUid = uid;
 
     // Apply this game's saved settings before/at launch.
     EKAGameSettings *s = [GameSettingsStore settingsForUid:uid];
     eka2l1::ios::bridge::set_app_refresh_rate(uid, (int)s.refreshRate);  // read by the guest on launch
-    eka2l1::ios::bridge::set_app_filter_shader(uid, (s.filterShader ?: @"").UTF8String);  // upscale shader (off by default)
+    eka2l1::ios::bridge::set_app_filter_shader(uid, [self effectiveFilterShaderForSettings:s].UTF8String);
     eka2l1::ios::bridge::set_gyro_passthrough(s.gyroPassthrough);  // feed device tilt to the guest accelerometer
     eka2l1::ios::bridge::set_haptic_passthrough(s.hapticPassthrough);  // pass guest vibration to the Taptic Engine
     eka2l1::ios::bridge::set_screen_rotation((int)s.screenRotation);
@@ -970,7 +976,7 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
 - (void)gameSettingsDidChangeForUid:(uint32_t)uid {
     EKAGameSettings *changed = [GameSettingsStore settingsForUid:uid];
     eka2l1::ios::bridge::set_app_refresh_rate(uid, (int)changed.refreshRate);
-    eka2l1::ios::bridge::set_app_filter_shader(uid, (changed.filterShader ?: @"").UTF8String);  // takes effect next launch
+    eka2l1::ios::bridge::set_app_filter_shader(uid, [self effectiveFilterShaderForSettings:changed].UTF8String);  // takes effect next launch
     if (!self.gameRunning || uid != self.currentGameUid) {
         return;
     }

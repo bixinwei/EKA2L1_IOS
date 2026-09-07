@@ -84,7 +84,7 @@ static NSArray<NSNumber *> *EKAScreenRotations(void) { return @[@0, @90, @180, @
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
         case EKASectionSystem:    return 1;   // Refresh rate
-        case EKASectionScreen:    return 9;   // gravity P/L, rotation, hide island, opacity, status, auto-scale, render scale, shader
+        case EKASectionScreen:    return 10;  // gravity P/L, rotation, chrome, visual/filter options
         case EKASectionKeyLayout: return 7;   // Layout + haptics + layout editors + passthrough
         case EKASectionReset:     return 1;
         default:                  return 0;
@@ -200,11 +200,18 @@ static NSArray<NSNumber *> *EKAScreenRotations(void) { return @[@0, @90, @180, @
                 cell.detailTextLabel.text = [self renderScaleName];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
                 cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-            } else {
+            } else if (indexPath.row == 8) {
                 cell.textLabel.text = @"Upscale Shader";
                 cell.detailTextLabel.text = [self filterShaderName];
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
                 cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+            } else {
+                cell.textLabel.text = @"Fantasy CRT & Light Bloom";
+                cell.detailTextLabel.text = @"CRT glow + light streaks";
+                UISwitch *sw = [[UISwitch alloc] init];
+                sw.on = _settings.visualEnhancement;
+                [sw addTarget:self action:@selector(onVisualEnhancementChanged:) forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = sw;
             }
             break;
         }
@@ -303,6 +310,11 @@ static NSArray<NSNumber *> *EKAScreenRotations(void) { return @[@0, @90, @180, @
 
 - (void)onHapticPassthroughChanged:(UISwitch *)sw {
     _settings.hapticPassthrough = sw.on;
+    [self persistAndNotify];
+}
+
+- (void)onVisualEnhancementChanged:(UISwitch *)sw {
+    _settings.visualEnhancement = sw.on;
     [self persistAndNotify];
 }
 
