@@ -587,9 +587,10 @@ namespace eka2l1::ios::bridge {
         std::lock_guard<std::mutex> guard(g_mutex);
         if (g_state && g_state->launcher_) {
             g_state->launcher_->set_screen_gravity(static_cast<std::uint32_t>(gravity));
-            // Re-fit the current screen at the new gravity right away (the guest may be on a
-            // static screen that would otherwise not redraw).
-            redraw_screens_immediately();
+            // Do not synchronously wait for and submit a graphics frame while a UIKit settings
+            // action is being handled. That path can deadlock the main thread against the guest
+            // presentation thread. The next normal guest frame uses the new gravity; a static
+            // game also receives it safely on its next redraw / relaunch.
         }
     }
 

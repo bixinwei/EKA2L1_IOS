@@ -461,11 +461,13 @@ static NSArray<NSArray<NSString *> *> *EKAFilterShaders(void) {
         NSString *t = (g == current) ? [names[g] stringByAppendingString:@"  ✓"] : names[g];
         [sheet addAction:[UIAlertAction actionWithTitle:t style:UIAlertActionStyleDefault
             handler:^(UIAlertAction *a) {
-                if (portrait) { _settings.gravityPortrait = (EKAScreenGravity)g; }
-                else          { _settings.gravityLandscape = (EKAScreenGravity)g; }
-                [self persistAndNotify];
-                [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:EKASectionScreen]
-                              withRowAnimation:UITableViewRowAnimationNone];
+                 if (portrait) { _settings.gravityPortrait = (EKAScreenGravity)g; }
+                 else          { _settings.gravityLandscape = (EKAScreenGravity)g; }
+                 [self persistAndNotify];
+                // Updating the entire section while its action sheet is dismissing rebuilds
+                // sliders/switches and can leave UIKit's table transition stuck. This cell is
+                // the only visible value that changed, so update it in place.
+                cell.detailTextLabel.text = names[g];
             }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
