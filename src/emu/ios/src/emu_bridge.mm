@@ -83,6 +83,27 @@ namespace eka2l1::ios::bridge {
             }
         }
 
+        // `resources` is deliberately preserved after first launch because it also contains
+        // generated caches.  New built-in shaders must nevertheless be staged on upgrade:
+        // otherwise a saved per-game shader selection points at a file which exists only in
+        // the updated IPA bundle and the renderer fails while the guest launches.
+        void copy_bundled_shader_if_missing(NSString *bundleRoot, NSString *dataRoot, NSString *shaderName) {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSString *relative = [@"resources/upscale" stringByAppendingPathComponent:shaderName];
+            NSString *src = [bundleRoot stringByAppendingPathComponent:relative];
+            NSString *dst = [dataRoot stringByAppendingPathComponent:relative];
+            if (![fm fileExistsAtPath:src] || [fm fileExistsAtPath:dst]) {
+                return;
+            }
+            [fm createDirectoryAtPath:[dst stringByDeletingLastPathComponent]
+          withIntermediateDirectories:YES attributes:nil error:nil];
+            NSError *err = nil;
+            if (![fm copyItemAtPath:src toPath:dst error:&err]) {
+                LOG_ERROR(eka2l1::FRONTEND_CMDLINE, "Failed to stage bundled shader '{}': {}",
+                    [shaderName UTF8String], err ? [[err localizedDescription] UTF8String] : "unknown");
+            }
+        }
+
         bool start_locked() {
             if (g_running) {
                 return g_has_device;
@@ -136,6 +157,7 @@ namespace eka2l1::ios::bridge {
 
                 // Read-only assets shipped in the .app, copied into the writable area.
                 copy_bundle_subdir(bundleRoot, dataRoot, @"resources");
+                copy_bundled_shader_if_missing(bundleRoot, dataRoot, @"fantasy-crt.frag");
                 copy_bundle_subdir(bundleRoot, dataRoot, @"compat");
                 copy_bundle_subdir(bundleRoot, dataRoot, @"patch");
             }
