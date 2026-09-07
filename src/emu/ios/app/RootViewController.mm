@@ -859,10 +859,66 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
         handler:^(UIAlertAction *a) { [self openGameSettingsForUid:uid name:name]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Hide App" style:UIAlertActionStyleDestructive
         handler:^(UIAlertAction *a) { [self confirmHideAppUid:uid name:name]; }]];
+    // Only user-installed packages are removable. ROM/system applications deliberately do
+    // not expose a destructive action, because the emulator cannot uninstall those safely.
+    BOOL removable = NO;
+    for (const auto &pkg : eka2l1::ios::bridge::get_packages()) {
+        if (pkg.uid == uid) { removable = YES; break; }
+    }
+    if (removable) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Delete Game" style:UIAlertActionStyleDestructive
+            handler:^(UIAlertAction *a) { [self confirmDeleteGameUid:uid name:name]; }]];
+    }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.appsTable;
     sheet.popoverPresentationController.sourceRect = [self.appsTable rectForRowAtIndexPath:ip];
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)confirmDeleteGameUid:(uint32_t)uid name:(NSString *)name {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Delete Game"
+        message:[NSString stringWithFormat:@"Delete “%@”? Its installed files and save data will be removed. This cannot be undone.", name]
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Delete" style:UIAlertActionStyleDestructive
+        handler:^(UIAlertAction *a) { [self deleteGameUid:uid name:name]; }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)deleteGameUid:(uint32_t)uid name:(NSString *)name {
+    // Resolve the package immediately before removal. UID is stable; the package index is the
+    // package manager's current uninstall handle and can change after a guest reboot.
+    std::vector<eka2l1::ios::bridge::package_entry> packages = eka2l1::ios::bridge::get_packages();
+    eka2l1::ios::bridge::package_entry target{};
+    BOOL found = NO;
+    for (const auto &pkg : packages) {
+        if (pkg.uid != uid) continue;
+        if (!found) { target = pkg; found = YES; }
+        NSString *pkgName = [NSString stringWithUTF8String:pkg.name.c_str()];
+        if ([pkgName caseInsensitiveCompare:name] == NSOrderedSame) { target = pkg; break; }
+    }
+    if (!found) {
+        UIAlertController *error = [UIAlertController alertControllerWithTitle:@"Cannot Delete Game"
+            message:@"This game package is no longer available for removal." preferredStyle:UIAlertControllerStyleAlert];
+        [error addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:error animated:YES completion:nil];
+        return;
+    }
+
+    self.apps = @[];
+    [self.appsTable reloadData];
+    self.appsTable.hidden = YES;
+    self.statusLabel.text = @"Deleting game…";
+    self.statusLabel.hidden = NO;
+    [self updateChrome];
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        eka2l1::ios::bridge::uninstall_package(target.uid, target.index);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.statusLabel.text = @"Reloading apps…";
+            [self pollForAppsWithAttemptsLeft:20];
+        });
+    });
 }
 
 - (void)confirmHideAppUid:(uint32_t)uid name:(NSString *)name {
