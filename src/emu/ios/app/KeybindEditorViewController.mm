@@ -118,6 +118,11 @@
                 if (combo.count) {
                     [self setSlotKey:key index:ip.row value:combo];
                     [self.tableView reloadData];
+                } else if (self->_onSave) {
+                    // Controller capture temporarily takes ownership of GameController's
+                    // single valueChangedHandler.  A cancelled capture changes no binding,
+                    // but still has to notify InputManager so it reattaches that handler.
+                    self->_onSave();
                 }
             }];
         [self presentViewController:cap animated:YES completion:nil];
