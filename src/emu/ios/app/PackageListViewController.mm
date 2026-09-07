@@ -54,7 +54,8 @@ static const CGFloat kPkgIconSize = 40.0;
 @end
 
 @interface PackageListViewController ()
-// Each entry: @{ @"uid": NSNumber(uint32), @"index": NSNumber(int32), @"name": NSString }.
+// Each entry: @{ @"uid": NSNumber(uint32), @"index": NSNumber(int32), @"name": NSString,
+//                @"packageName": NSString }.  `name` is the launcher-visible app/game name.
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *packages;
 @property (nonatomic, strong) NSMutableDictionary<NSNumber *, UIImage *> *iconCache;
 @property (nonatomic, assign) BOOL didChange;
@@ -93,16 +94,25 @@ static const CGFloat kPkgIconSize = 40.0;
 
 - (void)reloadPackages {
     [self.packages removeAllObjects];
+    // Package metadata often uses the SIS component name, which is not necessarily what the
+    // user sees on the Symbian home screen.  Resolve it through the live app registry first.
+    NSMutableDictionary<NSNumber *, NSString *> *appNames = [NSMutableDictionary dictionary];
+    for (const auto &app : eka2l1::ios::bridge::get_apps()) {
+        NSString *appName = [NSString stringWithUTF8String:app.name.c_str()];
+        if (appName.length && !appNames[@(app.uid)]) appNames[@(app.uid)] = appName;
+    }
     std::vector<eka2l1::ios::bridge::package_entry> pkgs = eka2l1::ios::bridge::get_packages();
     for (const auto &p : pkgs) {
-        NSString *name = [NSString stringWithUTF8String:p.name.c_str()];
-        if (name.length == 0) {
-            name = @"(Unnamed package)";
+        NSString *packageName = [NSString stringWithUTF8String:p.name.c_str()];
+        if (packageName.length == 0) {
+            packageName = @"(Unnamed package)";
         }
+        NSString *name = appNames[@(p.uid)] ?: packageName;
         [self.packages addObject:@{
             @"uid": @(p.uid),
             @"index": @(p.index),
-            @"name": name
+            @"name": name,
+            @"packageName": packageName
         }];
     }
     [self updateEmptyState];
@@ -174,8 +184,10 @@ static const CGFloat kPkgIconSize = 40.0;
     NSDictionary *pkg = self.packages[indexPath.row];
     cell.textLabel.text = pkg[@"name"];
     cell.textLabel.font = [UIFont systemFontOfSize:17];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"UID: 0x%08X",
-                                 [pkg[@"uid"] unsignedIntValue]];
+    NSString *packageName = pkg[@"packageName"];
+    NSString *uid = [NSString stringWithFormat:@"UID: 0x%08X", [pkg[@"uid"] unsignedIntValue]];
+    cell.detailTextLabel.text = [packageName isEqualToString:pkg[@"name"]]
+        ? uid : [NSString stringWithFormat:@"%@ · %@", packageName, uid];
     cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
     cell.imageView.image = self.iconCache[pkg[@"uid"]] ?: [UIImage systemImageNamed:@"app.dashed"];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
