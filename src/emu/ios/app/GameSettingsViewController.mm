@@ -328,7 +328,7 @@ static NSArray<NSNumber *> *EKAScreenRotations(void) { return @[@0, @90, @180, @
                 _settings.autoScalePortrait  = [name isEqualToString:@"Both"] || [name isEqualToString:@"Portrait only"];
                 _settings.autoScaleLandscape = [name isEqualToString:@"Both"] || [name isEqualToString:@"Landscape only"];
                 [self persistAndNotify];
-                [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:6 inSection:EKASectionScreen]]
+                [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:5 inSection:EKASectionScreen]]
                                       withRowAnimation:UITableViewRowAnimationNone];
             }]];
     }
@@ -369,7 +369,7 @@ static NSArray<NSNumber *> *EKARenderScales(void) { return @[@0.0, @0.5, @1.0, @
             handler:^(UIAlertAction *a) {
                 _settings.renderScale = scale.doubleValue;
                 [self persistAndNotify];
-                [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:7 inSection:EKASectionScreen]]
+                [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:6 inSection:EKASectionScreen]]
                                       withRowAnimation:UITableViewRowAnimationNone];
             }]];
     }
@@ -421,7 +421,7 @@ static NSArray<NSArray<NSString *> *> *EKAFilterShaders(void) {
             handler:^(UIAlertAction *a) {
                 _settings.filterShader = value;
                 [self persistAndNotify];
-                [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:8 inSection:EKASectionScreen]]
+                [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:7 inSection:EKASectionScreen]]
                                       withRowAnimation:UITableViewRowAnimationNone];
             }]];
     }
@@ -435,7 +435,7 @@ static NSArray<NSArray<NSString *> *> *EKAFilterShaders(void) {
     _settings.controlsOpacity = slider.value;
     [self persistAndNotify];
     // Update just the detail text without rebuilding the slider (so dragging stays smooth).
-    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:4 inSection:EKASectionScreen]];
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:3 inSection:EKASectionScreen]];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%d%%", (int)(_settings.controlsOpacity * 100 + 0.5)];
 }
 

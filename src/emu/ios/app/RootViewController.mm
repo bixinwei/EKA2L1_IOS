@@ -633,13 +633,12 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
         for (NSUInteger row = 0; row < list.count; row++) {
             NSDictionary *entry = list[row];
             NSNumber *uidNum = entry[@"uid"];
+            if (self.iconCache[uidNum]) continue;
             eka2l1::ios::bridge::icon_image icon = eka2l1::ios::bridge::get_app_icon((std::uint32_t)uidNum.unsignedLongValue);
             UIImage *img = [self imageFromRGBA:icon.rgba.data() width:icon.width height:icon.height];
             if (img) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    // iconCache is an NSMutableDictionary.  Keep every access on the main
-                    // thread: the old background read raced this write/clear and could crash.
-                    if (!self.iconCache[uidNum]) self.iconCache[uidNum] = img;
+                    self.iconCache[uidNum] = img;
                     // Reload just this row (not the whole table) so the scroll position is
                     // preserved as icons stream in (cellForRowAtIndexPath repaints the cursor).
                     if (list == self.apps && row < self.apps.count) {
@@ -860,11 +859,16 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
         handler:^(UIAlertAction *a) { [self openGameSettingsForUid:uid name:name]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Hide App" style:UIAlertActionStyleDestructive
         handler:^(UIAlertAction *a) { [self confirmHideAppUid:uid name:name]; }]];
-    // All entries expose Delete Game. Installed packages are physically uninstalled;
-    // read-only ROM apps are removed from the home screen (their ROM files cannot be
-    // deleted, and can be restored from Hidden Apps).
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Delete Game" style:UIAlertActionStyleDestructive
-        handler:^(UIAlertAction *a) { [self confirmDeleteGameUid:uid name:name]; }]];
+    // Only user-installed packages are removable. ROM/system applications deliberately do
+    // not expose a destructive action, because the emulator cannot uninstall those safely.
+    BOOL removable = NO;
+    for (const auto &pkg : eka2l1::ios::bridge::get_packages()) {
+        if (pkg.uid == uid) { removable = YES; break; }
+    }
+    if (removable) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Delete Game" style:UIAlertActionStyleDestructive
+            handler:^(UIAlertAction *a) { [self confirmDeleteGameUid:uid name:name]; }]];
+    }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.appsTable;
     sheet.popoverPresentationController.sourceRect = [self.appsTable rectForRowAtIndexPath:ip];
@@ -872,15 +876,8 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
 }
 
 - (void)confirmDeleteGameUid:(uint32_t)uid name:(NSString *)name {
-    BOOL installedPackage = NO;
-    for (const auto &pkg : eka2l1::ios::bridge::get_packages()) {
-        if (pkg.uid == uid) { installedPackage = YES; break; }
-    }
-    NSString *message = installedPackage
-        ? [NSString stringWithFormat:@"Delete “%@”? Its installed files and save data will be removed. This cannot be undone.", name]
-        : [NSString stringWithFormat:@"Delete “%@” from the home screen? It is built into the read-only ROM, so its files cannot be erased. You can restore it later from Hidden Apps.", name];
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Delete Game"
-        message:message
+        message:[NSString stringWithFormat:@"Delete “%@”? Its installed files and save data will be removed. This cannot be undone.", name]
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Delete" style:UIAlertActionStyleDestructive
         handler:^(UIAlertAction *a) { [self deleteGameUid:uid name:name]; }]];
@@ -901,10 +898,10 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
         if ([pkgName caseInsensitiveCompare:name] == NSOrderedSame) { target = pkg; break; }
     }
     if (!found) {
-        // ROM applications live on the read-only Z drive. "Delete" therefore means
-        // removing their launcher entry; the existing Hidden Apps page is the recovery path.
-        [HiddenAppsViewController setUid:uid hidden:YES];
-        [self showAppsScreen];
+        UIAlertController *error = [UIAlertController alertControllerWithTitle:@"Cannot Delete Game"
+            message:@"This game package is no longer available for removal." preferredStyle:UIAlertControllerStyleAlert];
+        [error addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:error animated:YES completion:nil];
         return;
     }
 

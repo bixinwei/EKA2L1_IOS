@@ -198,14 +198,13 @@ static const CGFloat kHiddenIconSize = 40.0;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         for (NSUInteger row = 0; row < snapshot.count; row++) {
             NSNumber *uidNum = snapshot[row][@"uid"];
+            if (self.iconCache[uidNum]) continue;
             eka2l1::ios::bridge::icon_image icon =
                 eka2l1::ios::bridge::get_app_icon((std::uint32_t)uidNum.unsignedLongValue);
             UIImage *img = [self imageFromRGBA:icon.rgba.data() width:icon.width height:icon.height];
             if (!img) continue;
             dispatch_async(dispatch_get_main_queue(), ^{
-                // iconCache is mutable and is also read by table cells on the main thread.
-                // Do not touch it from the worker queue.
-                if (!self.iconCache[uidNum]) self.iconCache[uidNum] = img;
+                self.iconCache[uidNum] = img;
                 if (row < self.apps.count && [self.apps[row][@"uid"] isEqual:uidNum]) {
                     NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
                     [self.tableView reloadRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationNone];
