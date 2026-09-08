@@ -6,6 +6,76 @@
 #import "TouchMappingStore.h"
 #import "KeybindStore.h"
 #import "KeybindCaptureViewController.h"
+#include <math.h>
+
+// A direction disk owns its raw touches instead of combining UIPanGestureRecognizer and
+// UIPinchGestureRecognizer. UIKit allows those recognizers to compete, which made a one-finger
+// drag or two-finger scale intermittently fail depending on recognition timing.
+@interface EKADirectionDiskMarker : UIControl
+@property (nonatomic, copy) void (^moved)(CGPoint center);
+@property (nonatomic, copy) void (^scaled)(CGFloat scale);
+@property (nonatomic, copy) void (^finished)(void);
+@end
+
+@implementation EKADirectionDiskMarker {
+    NSMutableSet<UITouch *> *_activeTouches;
+    UITouch *_dragTouch;
+    CGFloat _initialDistance;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.multipleTouchEnabled = YES;
+        _activeTouches = [NSMutableSet set];
+    }
+    return self;
+}
+
+- (void)beginScaleIfNeeded {
+    if (_activeTouches.count < 2) return;
+    NSArray<UITouch *> *touches = _activeTouches.allObjects;
+    CGPoint a = [touches[0] locationInView:self.superview];
+    CGPoint b = [touches[1] locationInView:self.superview];
+    _initialDistance = MAX(1.0, hypot(a.x - b.x, a.y - b.y));
+    _dragTouch = nil;
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [_activeTouches unionSet:touches];
+    if (_activeTouches.count == 1) _dragTouch = _activeTouches.anyObject;
+    else [self beginScaleIfNeeded];
+}
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (_activeTouches.count >= 2) {
+        NSArray<UITouch *> *all = _activeTouches.allObjects;
+        CGPoint a = [all[0] locationInView:self.superview];
+        CGPoint b = [all[1] locationInView:self.superview];
+        CGFloat distance = hypot(a.x - b.x, a.y - b.y);
+        if (self.scaled) self.scaled(distance / MAX(1.0, _initialDistance));
+        return;
+    }
+    if (_dragTouch && [touches containsObject:_dragTouch] && self.moved) {
+        self.moved([_dragTouch locationInView:self.superview]);
+    }
+}
+
+- (void)finishTouches:(NSSet<UITouch *> *)touches {
+    [_activeTouches minusSet:touches];
+    if (_activeTouches.count == 1) _dragTouch = _activeTouches.anyObject;
+    if (_activeTouches.count == 0) {
+        _dragTouch = nil;
+        if (self.finished) self.finished();
+    } else if (_activeTouches.count == 1) {
+        // The remaining finger begins a new drag baseline; it must not inherit a stale pinch.
+        _initialDistance = 0.0;
+    }
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self finishTouches:touches]; }
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self finishTouches:touches]; }
+@end
 
 @implementation TouchMappingEditorViewController {
     uint32_t _uid;
@@ -17,7 +87,7 @@
     NSArray<NSString *> *_pendingTokens;
     UILabel *_hint;
     UIView *_bar;
-    NSMutableDictionary<NSString *, UIButton *> *_markers;
+    NSMutableDictionary<NSString *, UIView *> *_markers;
 }
 
 - (instancetype)initWithUid:(uint32_t)uid name:(NSString *)name gameView:(UIView *)gameView
@@ -145,10 +215,10 @@
 - (void)positionMarkers {
     CGRect rect = [self gameRect];
     for (NSMutableDictionary *mapping in _mappings) {
-        UIButton *marker = _markers[mapping[@"id"]];
+        UIView *marker = _markers[mapping[@"id"]];
         if (!marker || CGRectIsEmpty(rect)) continue;
         const BOOL isDisk = [mapping[@"type"] isEqualToString:@"dpad"];
-        const CGFloat diameter = isDisk ? MAX(72.0, MIN(190.0, rect.size.width * [mapping[@"size"] doubleValue] * 2.0)) : 54.0;
+        const CGFloat diameter = isDisk ? MAX(90.0, MIN(300.0, rect.size.width * [mapping[@"size"] doubleValue] * 2.0)) : 54.0;
         marker.bounds = CGRectMake(0, 0, diameter, diameter);
         marker.layer.cornerRadius = diameter / 2.0;
         marker.center = CGPointMake(CGRectGetMinX(rect) + rect.size.width * [mapping[@"x"] doubleValue],
@@ -176,12 +246,44 @@
         UIPanGestureRecognizer *drag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragMarker:)];
         drag.maximumNumberOfTouches = 1; // leave two-finger gestures exclusively to direction-disk scaling
         [marker addGestureRecognizer:drag];
-        if (isDisk) [marker addGestureRecognizer:[[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(scaleDirectionDisk:)]];
         UILongPressGestureRecognizer *remove = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(removeMarker:)];
         remove.minimumPressDuration = 0.55;
         [marker addGestureRecognizer:remove];
-        [self.view addSubview:marker];
-        _markers[mapping[@"id"]] = marker;
+        if (isDisk) {
+            [marker removeFromSuperview];
+            EKADirectionDiskMarker *disk = [[EKADirectionDiskMarker alloc] initWithFrame:marker.frame];
+            disk.backgroundColor = marker.backgroundColor;
+            disk.layer.borderColor = marker.layer.borderColor;
+            disk.layer.borderWidth = marker.layer.borderWidth;
+            disk.layer.cornerRadius = marker.layer.cornerRadius;
+            disk.clipsToBounds = YES;
+            disk.accessibilityIdentifier = mapping[@"id"];
+            UILabel *arrows = [[UILabel alloc] initWithFrame:disk.bounds];
+            arrows.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            arrows.text = @"↑\n←  →\n↓";
+            arrows.textColor = UIColor.whiteColor;
+            arrows.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
+            arrows.textAlignment = NSTextAlignmentCenter;
+            arrows.numberOfLines = 3;
+            [disk addSubview:arrows];
+            __weak typeof(self) weakSelf = self;
+            __weak EKADirectionDiskMarker *weakDisk = disk;
+            disk.moved = ^(CGPoint center) { [weakSelf moveDirectionDisk:weakDisk to:center]; };
+            disk.scaled = ^(CGFloat scale) { [weakSelf scaleDirectionDisk:weakDisk scale:scale]; };
+            disk.finished = ^{
+                weakDisk.accessibilityValue = nil; // next pinch starts from the newly saved size
+                [weakSelf persist];
+            };
+            UILongPressGestureRecognizer *remove = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(removeMarker:)];
+            remove.minimumPressDuration = 0.55;
+            remove.cancelsTouchesInView = NO;
+            [disk addGestureRecognizer:remove];
+            [self.view addSubview:disk];
+            _markers[mapping[@"id"]] = disk;
+        } else {
+            [self.view addSubview:marker];
+            _markers[mapping[@"id"]] = marker;
+        }
     }
     [self positionMarkers];
 }
@@ -221,7 +323,7 @@
 
 - (void)addDirectionDisk {
     NSMutableDictionary *disk = [@{ @"id": [[NSUUID UUID] UUIDString], @"type": @"dpad",
-                                    @"x": @0.5, @"y": @0.5, @"size": @0.13 } mutableCopy];
+                                    @"x": @0.5, @"y": @0.5, @"size": @0.20 } mutableCopy];
     [_mappings addObject:disk];
     _hint.text = @"Drag the direction disk. Pinch it to resize.";
     _hint.textColor = [UIColor colorWithWhite:0.78 alpha:1.0];
@@ -258,18 +360,24 @@
     if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled || pan.state == UIGestureRecognizerStateFailed) [self persist];
 }
 
-- (void)scaleDirectionDisk:(UIPinchGestureRecognizer *)pinch {
-    UIButton *marker = (UIButton *)pinch.view;
-    NSMutableDictionary *mapping = [self mappingForIdentifier:marker.accessibilityIdentifier];
-    if (!mapping || ![mapping[@"type"] isEqualToString:@"dpad"]) return;
-    if (pinch.state == UIGestureRecognizerStateBegan) marker.accessibilityValue = [mapping[@"size"] stringValue];
-    const CGFloat initial = marker.accessibilityValue.doubleValue;
-    mapping[@"size"] = @(MAX(0.04, MIN(0.30, initial * pinch.scale)));
+- (void)moveDirectionDisk:(EKADirectionDiskMarker *)disk to:(CGPoint)point {
+    NSMutableDictionary *mapping = [self mappingForIdentifier:disk.accessibilityIdentifier];
+    CGRect rect = [self gameRect];
+    if (!mapping || CGRectIsEmpty(rect)) return;
+    point.x = MAX(CGRectGetMinX(rect), MIN(CGRectGetMaxX(rect), point.x));
+    point.y = MAX(CGRectGetMinY(rect), MIN(CGRectGetMaxY(rect), point.y));
+    mapping[@"x"] = @((point.x - CGRectGetMinX(rect)) / rect.size.width);
+    mapping[@"y"] = @((point.y - CGRectGetMinY(rect)) / rect.size.height);
     [self positionMarkers];
-    if (pinch.state == UIGestureRecognizerStateEnded || pinch.state == UIGestureRecognizerStateCancelled || pinch.state == UIGestureRecognizerStateFailed) {
-        marker.accessibilityValue = nil;
-        [self persist];
-    }
+}
+
+- (void)scaleDirectionDisk:(EKADirectionDiskMarker *)disk scale:(CGFloat)scale {
+    NSMutableDictionary *mapping = [self mappingForIdentifier:disk.accessibilityIdentifier];
+    if (!mapping || ![mapping[@"type"] isEqualToString:@"dpad"]) return;
+    if (disk.accessibilityValue.length == 0) disk.accessibilityValue = [mapping[@"size"] stringValue];
+    const CGFloat initial = disk.accessibilityValue.doubleValue;
+    mapping[@"size"] = @(MAX(0.06, MIN(0.45, initial * scale)));
+    [self positionMarkers];
 }
 
 - (void)removeMarker:(UILongPressGestureRecognizer *)press {

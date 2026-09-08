@@ -18,7 +18,9 @@
     NSData *data = [NSData dataWithContentsOfFile:[self pathForUid:uid]];
     if (!data) return @[];
     id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    NSArray *raw = [root isKindOfClass:[NSDictionary class]] ? root[@"mappings"] : nil;
+    NSDictionary *document = [root isKindOfClass:[NSDictionary class]] ? root : nil;
+    const NSInteger version = [document[@"version"] integerValue];
+    NSArray *raw = document[@"mappings"];
     if (![raw isKindOfClass:[NSArray class]]) return @[];
 
     NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
@@ -33,10 +35,14 @@
         if (![type isEqualToString:@"button"] && ![type isEqualToString:@"dpad"]) continue;
         if ([type isEqualToString:@"dpad"]) {
             NSNumber *size = item[@"size"];
+            double requestedSize = [size isKindOfClass:[NSNumber class]] ? size.doubleValue : 0.20;
+            // Version 1 shipped with a 13% radius. It is too short for many Symbian
+            // touchscreen D-pads, so upgrade untouched disks to the responsive 20% default.
+            if (version < 2 && requestedSize < 0.20) requestedSize = 0.20;
             [out addObject:@{ @"id": identifier, @"type": type,
                               @"x": @(MAX(0.0, MIN(1.0, x.doubleValue))),
                               @"y": @(MAX(0.0, MIN(1.0, y.doubleValue))),
-                              @"size": @(MAX(0.04, MIN(0.30, [size isKindOfClass:[NSNumber class]] ? size.doubleValue : 0.13))) }];
+                              @"size": @(MAX(0.06, MIN(0.45, requestedSize)) }];
             continue;
         }
         if (![tokens isKindOfClass:[NSArray class]] || tokens.count == 0) continue;
@@ -53,7 +59,7 @@
 + (void)saveMappings:(NSArray<NSDictionary *> *)mappings forUid:(uint32_t)uid {
     if (uid == 0) return;
     NSError *error = nil;
-    NSData *data = [NSJSONSerialization dataWithJSONObject:@{ @"version": @1, @"mappings": mappings ?: @[] }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@{ @"version": @2, @"mappings": mappings ?: @[] }
                                                    options:NSJSONWritingPrettyPrinted error:&error];
     if (data && !error) [data writeToFile:[self pathForUid:uid] atomically:YES];
 }
