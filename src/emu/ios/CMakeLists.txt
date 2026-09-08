@@ -68,12 +68,16 @@ set(IOS_APP_SOURCES
     app/GameSettingsViewController.mm
     app/KeybindStore.h
     app/KeybindStore.mm
+    app/TouchMappingStore.h
+    app/TouchMappingStore.mm
     app/InputManager.h
     app/InputManager.mm
     app/GameMenuView.h
     app/GameMenuView.mm
     app/KeybindCaptureViewController.h
     app/KeybindCaptureViewController.mm
+    app/TouchMappingEditorViewController.h
+    app/TouchMappingEditorViewController.mm
     app/KeybindEditorViewController.h
     app/KeybindEditorViewController.mm
     app/LayoutEditorViewController.h

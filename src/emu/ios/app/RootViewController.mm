@@ -24,6 +24,7 @@
 #import "InputManager.h"
 #import "GameMenuView.h"
 #import "KeybindEditorViewController.h"
+#import "TouchMappingEditorViewController.h"
 #import "LayoutEditorViewController.h"
 #import "PackageListViewController.h"
 #import "HiddenAppsViewController.h"
@@ -1147,6 +1148,7 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     }
     GameMenuView *menu = [[GameMenuView alloc] initWithTitle:@"Game Menu"];
     [menu addOption:@"Switch Key Layout" destructive:NO handler:^{ [self showLayoutChooserController]; }];
+    [menu addOption:@"Controller Touch Mapping" destructive:NO handler:^{ [self showTouchMappingEditor]; }];
     [menu addOption:@"Exit Game" destructive:YES handler:^{ [self exitGame]; }];
     [menu addOption:@"Cancel" destructive:NO handler:nil];
     [self presentGameMenu:menu];
@@ -1176,12 +1178,28 @@ static const CGFloat EKAGameMenuMargin = 8.0;
                                                            preferredStyle:UIAlertControllerStyleActionSheet];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Switch Key Layout" style:UIAlertActionStyleDefault
         handler:^(UIAlertAction *a) { [self showLayoutChooserNative]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Controller Touch Mapping" style:UIAlertActionStyleDefault
+        handler:^(UIAlertAction *a) { [self showTouchMappingEditor]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Exit Game" style:UIAlertActionStyleDestructive
         handler:^(UIAlertAction *a) { [self exitGame]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.menuButton;
     sheet.popoverPresentationController.sourceRect = self.menuButton.bounds;
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)showTouchMappingEditor {
+    if (!self.gameRunning || self.currentGameUid == 0) return;
+    __weak typeof(self) weakSelf = self;
+    TouchMappingEditorViewController *editor = [[TouchMappingEditorViewController alloc]
+        initWithUid:self.currentGameUid name:@"Game" gameView:self.emuView mappingsChanged:^{
+            RootViewController *selfRef = weakSelf;
+            if (selfRef) [selfRef.inputManager reloadBindingsForUid:selfRef.currentGameUid];
+        } editingChanged:^(BOOL editing) {
+            RootViewController *selfRef = weakSelf;
+            if (selfRef && selfRef.gameRunning) selfRef.inputManager.enabled = !editing;
+        }];
+    [self presentViewController:editor animated:YES completion:nil];
 }
 
 - (void)showLayoutChooserNative {
@@ -1266,7 +1284,14 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     });
 }
 
+- (void)inputManagerSetTouchMapping:(NSDictionary *)mapping active:(BOOL)active {
+    if (!self.gameRunning) return;
+    [self.emuView setVirtualTouch:mapping[@"id"] normalizedX:[mapping[@"x"] doubleValue]
+                       normalizedY:[mapping[@"y"] doubleValue] active:active];
+}
+
 - (void)exitGame {
+    [self.emuView releaseAllVirtualTouches];
     self.gameRunning = NO;
     self.controlsView.layout = 0;
     self.menuButton.hidden = YES;

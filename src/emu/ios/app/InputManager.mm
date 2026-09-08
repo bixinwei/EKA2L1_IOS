@@ -18,6 +18,7 @@
  */
 #import "InputManager.h"
 #import "KeybindStore.h"
+#import "TouchMappingStore.h"
 #import <GameController/GameController.h>
 
 #include <ios/emu_bridge.h>
@@ -60,6 +61,8 @@ static int EKARotatedDirectionScancode(int scancode, NSInteger rotation) {
     NSSet<NSNumber *> *_prevActive;           // actions active last recompute (edge detection)
     NSArray<NSDictionary *> *_kbBindings;     // { keys:[GCKeyCode], action:EKAAction }
     NSArray<NSDictionary *> *_ctrlBindings;   // { tokens:[NSString], action:EKAAction }
+    NSArray<NSDictionary *> *_touchMappings;  // { id, tokens, x, y }, per game only
+    NSSet<NSString *> *_activeTouchIds;
 }
 
 - (instancetype)init {
@@ -69,6 +72,7 @@ static int EKARotatedDirectionScancode(int scancode, NSInteger rotation) {
         _heldCtrl = [NSMutableSet set];
         _pressed = [NSMutableSet set];
         _prevActive = [NSSet set];
+        _activeTouchIds = [NSSet set];
         [self reloadBindingsForUid:0];
     }
     return self;
@@ -77,8 +81,10 @@ static int EKARotatedDirectionScancode(int scancode, NSInteger rotation) {
 // ---- Bindings -------------------------------------------------------------
 
 - (void)reloadBindingsForUid:(uint32_t)uid {
+    [self releaseAllMappedTouches];
     _kbBindings = [KeybindStore keyboardBindingsForUid:uid];
     _ctrlBindings = [KeybindStore controllerBindingsForUid:uid];
+    _touchMappings = [TouchMappingStore mappingsForUid:uid];
 
     // KeybindCaptureViewController temporarily installs its own valueChangedHandler to
     // listen for the button being assigned. GameController exposes only one handler per
@@ -87,6 +93,16 @@ static int EKARotatedDirectionScancode(int scancode, NSInteger rotation) {
     for (GCController *controller in GCController.controllers) {
         [self attachController:controller];
     }
+}
+
+- (void)releaseAllMappedTouches {
+    if (_activeTouchIds.count == 0) return;
+    for (NSDictionary *mapping in _touchMappings) {
+        if ([_activeTouchIds containsObject:mapping[@"id"]]) {
+            [self.delegate inputManagerSetTouchMapping:mapping active:NO];
+        }
+    }
+    _activeTouchIds = [NSSet set];
 }
 
 // Keyboard from the UIKit responder chain. _heldKeys is a plain set, so if GCKeyboard also
@@ -249,6 +265,14 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     }
     for (NSDictionary *b in _ctrlBindings) {
         NSArray *tokens = b[@"tokens"];
+        // A controller combo assigned to a screen point belongs to touch mapping, not to
+        // the legacy phone-key path. This prevents (for example) A from sending both Fire
+        // and a virtual touch in a touchscreen game.
+        BOOL reservedForTouch = NO;
+        for (NSDictionary *mapping in _touchMappings) {
+            if ([mapping[@"tokens"] isEqualToArray:tokens]) { reservedForTouch = YES; break; }
+        }
+        if (reservedForTouch) continue;
         BOOL all = YES;
         for (NSString *t in tokens) {
             if (![_heldCtrl containsObject:t]) { all = NO; break; }
@@ -273,6 +297,44 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     [self recompute];
 }
 
+- (NSSet<NSString *> *)activeTouchMappingIds {
+    if (!self.enabled || self.menuShown || self.appsListShown) return [NSSet set];
+    NSMutableSet<NSString *> *active = [NSMutableSet set];
+    for (NSDictionary *mapping in _touchMappings) {
+        NSArray<NSString *> *tokens = mapping[@"tokens"];
+        BOOL all = tokens.count > 0;
+        for (NSString *token in tokens) {
+            if (![_heldCtrl containsObject:token]) { all = NO; break; }
+        }
+        if (all) [active addObject:mapping[@"id"]];
+    }
+    return active;
+}
+
+- (NSDictionary *)touchMappingWithId:(NSString *)identifier {
+    for (NSDictionary *mapping in _touchMappings) {
+        if ([mapping[@"id"] isEqual:identifier]) return mapping;
+    }
+    return nil;
+}
+
+- (void)recomputeMappedTouches {
+    NSSet<NSString *> *desired = [self activeTouchMappingIds];
+    for (NSString *identifier in desired) {
+        if (![_activeTouchIds containsObject:identifier]) {
+            NSDictionary *mapping = [self touchMappingWithId:identifier];
+            if (mapping) [self.delegate inputManagerSetTouchMapping:mapping active:YES];
+        }
+    }
+    for (NSString *identifier in _activeTouchIds) {
+        if (![desired containsObject:identifier]) {
+            NSDictionary *mapping = [self touchMappingWithId:identifier];
+            if (mapping) [self.delegate inputManagerSetTouchMapping:mapping active:NO];
+        }
+    }
+    _activeTouchIds = desired;
+}
+
 - (void)setScreenRotation:(NSInteger)screenRotation {
     NSInteger normalized = (screenRotation == 90 || screenRotation == 180 || screenRotation == 270) ? screenRotation : 0;
     if (_screenRotation == normalized) return;
@@ -289,6 +351,8 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 - (void)recompute {
     BOOL uiNav = self.menuShown || self.appsListShown;
     NSSet<NSNumber *> *active = (self.enabled || uiNav) ? [self activeActions] : [NSSet set];
+
+    [self recomputeMappedTouches];
 
     if (uiNav) {
         // While a menu or the homescreen apps list is up, directions navigate it (move the

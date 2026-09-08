@@ -33,4 +33,9 @@
 // clamped to 1.0..3.0. Resizes the GL drawable. Driven by the per-game "Render Resolution" setting.
 - (void)setRenderScale:(CGFloat)scale;
 
+// Controller-to-touch mappings share the same guest pointer pool as real UIKit fingers, so a
+// mapped press never collides with a physical multi-touch pointer number.
+- (void)setVirtualTouch:(NSString *)identifier normalizedX:(CGFloat)x normalizedY:(CGFloat)y active:(BOOL)active;
+- (void)releaseAllVirtualTouches;
+
 @end

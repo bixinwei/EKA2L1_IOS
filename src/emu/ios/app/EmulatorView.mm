@@ -32,6 +32,7 @@
     // UITouch address (its low byte) as the id therefore made touch work only when that byte
     // happened to be 0 — the intermittent "touch is dead until I rotate a few times" bug.
     NSMapTable<UITouch *, NSNumber *> *_touchSlots;
+    NSMutableDictionary<NSString *, NSNumber *> *_virtualTouchSlots;
 }
 
 + (Class)layerClass {
@@ -60,6 +61,7 @@
         _lastWidth = 0;
         _lastHeight = 0;
         _touchSlots = [NSMapTable weakToStrongObjectsMapTable];
+        _virtualTouchSlots = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -124,12 +126,48 @@
     for (UITouch *t in _touchSlots) {
         [used addIndex:[[_touchSlots objectForKey:t] unsignedIntegerValue]];
     }
+    for (NSNumber *slot in _virtualTouchSlots.allValues) {
+        [used addIndex:slot.unsignedIntegerValue];
+    }
     int slot = 0;
     while ([used containsIndex:(NSUInteger)slot]) {
         slot++;
     }
     [_touchSlots setObject:@(slot) forKey:touch];
     return slot;
+}
+
+- (int)allocateSlotForVirtualTouch:(NSString *)identifier {
+    NSNumber *existing = _virtualTouchSlots[identifier];
+    if (existing) return existing.intValue;
+    NSMutableIndexSet *used = [NSMutableIndexSet indexSet];
+    for (UITouch *touch in _touchSlots) [used addIndex:[[_touchSlots objectForKey:touch] unsignedIntegerValue]];
+    for (NSNumber *slot in _virtualTouchSlots.allValues) [used addIndex:slot.unsignedIntegerValue];
+    NSUInteger slot = 0;
+    while ([used containsIndex:slot]) slot++;
+    _virtualTouchSlots[identifier] = @(slot);
+    return (int)slot;
+}
+
+- (void)setVirtualTouch:(NSString *)identifier normalizedX:(CGFloat)x normalizedY:(CGFloat)y active:(BOOL)active {
+    if (identifier.length == 0 || !eka2l1::ios::bridge::is_running()) return;
+    NSNumber *existing = _virtualTouchSlots[identifier];
+    if (!active && !existing) return;
+    const int pointerId = active ? [self allocateSlotForVirtualTouch:identifier] : existing.intValue;
+    const CGFloat scale = self.contentScaleFactor;
+    const int px = (int)(MAX(0.0, MIN(1.0, x)) * self.bounds.size.width * scale);
+    const int py = (int)(MAX(0.0, MIN(1.0, y)) * self.bounds.size.height * scale);
+    eka2l1::ios::bridge::touch(px, py, active ? eka2l1::ios::bridge::touch_action_down
+                                               : eka2l1::ios::bridge::touch_action_up, pointerId);
+    if (!active) [_virtualTouchSlots removeObjectForKey:identifier];
+}
+
+- (void)releaseAllVirtualTouches {
+    for (NSString *identifier in _virtualTouchSlots.allKeys.copy) {
+        NSNumber *slot = _virtualTouchSlots[identifier];
+        eka2l1::ios::bridge::touch(0, 0, eka2l1::ios::bridge::touch_action_up, slot.intValue);
+    }
+    [_virtualTouchSlots removeAllObjects];
 }
 
 - (void)dispatchTouches:(NSSet<UITouch *> *)touches action:(eka2l1::ios::bridge::touch_action)action {

@@ -27,6 +27,9 @@ NS_ASSUME_NONNULL_BEGIN
 // shown (controller dpad + A / keyboard arrows + Enter). dir: -1 = up/previous, +1 = down/next,
 // 0 = confirm.
 - (void)inputManagerDidNavigate:(NSInteger)dir;
+// A controller mapping was pressed/released. Coordinates are normalized to the visible game
+// surface; the receiver allocates a real guest pointer slot and injects the touch.
+- (void)inputManagerSetTouchMapping:(NSDictionary *)mapping active:(BOOL)active;
 @end
 
 // Hardware keyboard + game-controller input (GameController framework). Translates physical
