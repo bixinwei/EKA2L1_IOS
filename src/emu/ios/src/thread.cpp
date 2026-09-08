@@ -136,6 +136,7 @@ namespace eka2l1::ios {
             } catch (std::exception &exc) {
                 LOG_ERROR(FRONTEND_CMDLINE, "Main loop exited with exception: {}", exc.what());
                 state.should_emu_quit = true;
+                if (state.on_runtime_failure) state.on_runtime_failure();
                 break;
             }
 
@@ -146,7 +147,8 @@ namespace eka2l1::ios {
             }
         }
 
-        state.symsys.reset();
+        // The bridge owns lifetime. Keep guest objects alive until shutdown has
+        // joined this thread, so an exception cannot leave UI/launcher pointers dangling.
     }
 
     bool emulator_entry(emulator &state, void *surface, int width, int height) {
@@ -228,17 +230,19 @@ namespace eka2l1::ios {
             }
         }
 
-        // Join the OS thread FIRST: its symsys.reset() tears down the system, whose
-        // dispatcher destructor cleans up GL resources (egl_controller / shader manager)
-        // by submitting commands to the graphics driver. The graphics driver must still
-        // be alive and pumping its run() loop while that happens, otherwise the GL
-        // teardown dereferences a freed driver (crash on Exit Game). So we only stop the
-        // graphics thread *after* the system is fully destroyed.
+        // Wake BOTH threads before joining: guest cleanup may need the renderer.
+        state.pause_graphics_sema.notify();
         state.pause_sema.notify();
         if (os_thread_started) {
             pthread_join(os_thread_handle, nullptr);
             os_thread_started = false;
         }
+
+        // Called under the bridge lock; no frontend operation can use guest pointers
+        // while we invalidate them. Keep the graphics driver alive for GL cleanup.
+        state.winserv = nullptr;
+        state.symsys.reset();
+        state.launcher_.reset();
 
         // System is gone now; stop the graphics thread (it resets the driver on exit).
         state.pause_graphics_sema.notify();
@@ -252,7 +256,7 @@ namespace eka2l1::ios {
     }
 
     void press_key(emulator &state, int key, int key_state) {
-        if (!state.winserv) {
+        if (!state.winserv || state.should_emu_quit) {
             return;
         }
         eka2l1::drivers::input_event evt;
@@ -263,7 +267,7 @@ namespace eka2l1::ios {
     }
 
     void touch_screen(emulator &state, int x, int y, int z, int action, int pointer_id) {
-        if (!state.winserv) {
+        if (!state.winserv || state.should_emu_quit) {
             return;
         }
         eka2l1::drivers::input_event evt;

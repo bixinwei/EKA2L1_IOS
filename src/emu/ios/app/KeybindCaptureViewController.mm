@@ -26,6 +26,7 @@
     NSMutableSet *_heldNow;        // currently-held members of _working
     UILabel *_label;
     BOOL _done;
+    NSMutableDictionary<NSValue *, NSDictionary *> *_capturedPads;
 }
 
 - (instancetype)initForController:(BOOL)isController completion:(void (^)(NSArray * _Nullable))completion {
@@ -35,6 +36,7 @@
         _completion = [completion copy];
         _working = [NSMutableArray array];
         _heldNow = [NSMutableSet set];
+        _capturedPads = [NSMutableDictionary dictionary];
         self.modalPresentationStyle = UIModalPresentationOverFullScreen;
     }
     return self;
@@ -89,6 +91,7 @@
         return;
     }
     _done = YES;
+    [self restoreControllers];
     void (^cb)(NSArray *) = _completion;
     _completion = nil;
     [self dismissViewControllerAnimated:YES completion:^{
@@ -148,11 +151,34 @@
 
 - (void)attach:(GCController *)controller {
     GCExtendedGamepad *pad = controller.extendedGamepad;
-    if (!pad) return;
+    if (!pad || _done) return;
+    NSValue *key = [NSValue valueWithNonretainedObject:pad];
+    if (_capturedPads[key]) return;
     __weak KeybindCaptureViewController *weakSelf = self;
-    pad.valueChangedHandler = ^(GCExtendedGamepad *gp, GCControllerElement *e) {
+    GCExtendedGamepadValueChangedHandler capture = ^(GCExtendedGamepad *gp, GCControllerElement *e) {
         [weakSelf readGamepad:gp];
     };
+    _capturedPads[key] = @{@"pad": pad, @"previous": [pad.valueChangedHandler copy] ?: [NSNull null],
+                          @"capture": [capture copy]};
+    pad.valueChangedHandler = capture;
+}
+
+- (void)restoreControllers {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    for (NSDictionary *entry in _capturedPads.allValues) {
+        GCExtendedGamepad *pad = entry[@"pad"];
+        // Do not overwrite a newer owner (e.g. a mapping reload).
+        if (pad.valueChangedHandler == entry[@"capture"]) {
+            id previous = entry[@"previous"];
+            pad.valueChangedHandler = previous == [NSNull null] ? nil : previous;
+        }
+    }
+    [_capturedPads removeAllObjects];
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [self restoreControllers];
 }
 
 - (void)readGamepad:(GCExtendedGamepad *)gp {
@@ -177,6 +203,7 @@
     chk(gp.rightThumbstick.xAxis.value < -TH, @"RS_L"); chk(gp.rightThumbstick.xAxis.value > TH, @"RS_R");
 
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (self->_done) return;
         for (NSString *t in now) [self addMember:t];
         for (id t in [_working copy]) {
             if (![now containsObject:t]) [self removeMember:t];
@@ -185,7 +212,7 @@
 }
 
 - (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [self restoreControllers];
 }
 
 @end

@@ -181,12 +181,16 @@ namespace eka2l1::drivers {
         common::ro_std_file_stream stream(path, std::ios_base::binary);
         if (!stream.valid()) {
             LOG_ERROR(DRIVER_GRAPHICS, "Shader file stream with path {} is invalid!", path);
+            return;
         }
         
         std::string whole_code;
         whole_code.resize(stream.size());
 
-        stream.read(whole_code.data(), whole_code.size());
+        if (stream.read(whole_code.data(), whole_code.size()) != whole_code.size()) {
+            LOG_ERROR(DRIVER_GRAPHICS, "Failed to read complete shader: {}", path);
+            return;
+        }
         whole_code.insert(whole_code.begin(), extra_header.begin(), extra_header.end());
 
         create(nullptr, whole_code.data(), whole_code.size(), type);
@@ -260,7 +264,8 @@ namespace eka2l1::drivers {
         ogl_shader_module *ogl_vertex_module = reinterpret_cast<ogl_shader_module*>(vertex_module);
         ogl_shader_module *ogl_fragment_module = reinterpret_cast<ogl_shader_module*>(fragment_module);
 
-        if (!ogl_vertex_module || !ogl_fragment_module) {
+        if (!ogl_vertex_module || !ogl_fragment_module || !ogl_vertex_module->shader_handle()
+            || !ogl_fragment_module->shader_handle()) {
             return false;
         }
 

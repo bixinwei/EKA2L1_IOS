@@ -21,6 +21,7 @@
 #include <ios/emu_bridge.h>
 #include <ios/state.h>
 #include <ios/thread.h>
+#include <ios/backup_transaction.h>
 
 #include <common/fileutils.h>
 #include <common/language.h>
@@ -50,6 +51,8 @@ namespace eka2l1::ios::bridge {
 
         bool g_running = false;
         bool g_has_device = false;
+        std::uint64_t g_redraw_generation = 0;
+        bool g_redraw_pending = false;
 
         // Remember the surface so the emulator can be torn down and rebuilt in place
         // (e.g. after a device is installed).
@@ -110,6 +113,11 @@ namespace eka2l1::ios::bridge {
             }
 
             g_state = std::make_unique<eka2l1::ios::emulator>();
+            const auto exit_callback = g_app_exit_cb;
+            g_state->on_runtime_failure = [exit_callback]() {
+                // Root's callback dispatches to UIKit and initiates normal teardown.
+                if (exit_callback) exit_callback();
+            };
             // emulator_entry runs stage_one/stage_two inline (which mounts and parses the
             // ROM); do it on a large stack to survive the deep ROM-loader recursion.
             bool has_device = false;
@@ -137,7 +145,9 @@ namespace eka2l1::ios::bridge {
             if (!g_running || !g_state) {
                 return;
             }
-            eka2l1::ios::shutdown_threads(*g_state);
+            ++g_redraw_generation;
+            g_redraw_pending = false;
+            eka2l1::ios::run_with_large_stack([&]() { eka2l1::ios::shutdown_threads(*g_state); });
             g_state.reset();
             g_running = false;
             g_has_device = false;
@@ -166,28 +176,54 @@ namespace eka2l1::ios::bridge {
             eka2l1::common::set_current_directory(data_dir + "/");
         }
 
-        // Re-blit the current guest screen into the swapchain at the present surface size
-        // and present it immediately. Presents are otherwise only driven by a guest screen
-        // redraw, so after a rotation a static screen (e.g. a menu) keeps showing the old
-        // framebuffer stretched onto the resized layer. Mirrors Android's surfaceRedrawNeeded.
-        // Caller must hold g_mutex.
-        void redraw_screens_immediately() {
-            if (!g_state || !g_state->graphics_driver || !g_state->launcher_ || !g_state->window) {
-                return;
+        // Never wait for the GPU on UIKit's thread. Coalesce requests and retry
+        // while a guest frame is in flight; generations discard work after reboot.
+        bool try_redraw_screens() {
+            if (!g_state || !g_state->graphics_driver || !g_state->launcher_ || !g_state->window
+                || g_state->should_emu_quit) {
+                return true;
             }
-
-            g_state->graphics_driver->wait_for(&g_state->present_status);
+            if (g_state->should_graphics_pause) return false;
+            std::unique_lock<std::mutex> redraw_guard(g_state->redraw_mutex, std::try_to_lock);
+            if (!redraw_guard.owns_lock()) return false;
+            {
+                std::unique_lock<std::mutex> status_guard(g_state->graphics_driver->mut_, std::try_to_lock);
+                if (!status_guard.owns_lock() || g_state->present_status == -100) return false;
+            }
 
             eka2l1::drivers::graphics_command_builder builder;
             eka2l1::epoc::screen *scr = g_state->winserv ? g_state->winserv->get_screens() : nullptr;
             g_state->launcher_->draw(builder, scr, g_state->window->window_fb_size().x,
                 g_state->window->window_fb_size().y);
 
-            g_state->present_status = -100;
+            {
+                std::lock_guard<std::mutex> status_guard(g_state->graphics_driver->mut_);
+                g_state->present_status = -100;
+            }
             builder.present(&g_state->present_status);
 
             eka2l1::drivers::command_list retrieved = builder.retrieve_command_list();
             g_state->graphics_driver->submit_command_list(retrieved);
+            return true;
+        }
+
+        void schedule_redraw_attempt(std::uint64_t generation) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 16 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                std::unique_lock<std::mutex> guard(g_mutex, std::try_to_lock);
+                if (!guard.owns_lock()) {
+                    schedule_redraw_attempt(generation);
+                    return;
+                }
+                if (generation != g_redraw_generation || !g_redraw_pending) return;
+                if (try_redraw_screens()) g_redraw_pending = false;
+                else schedule_redraw_attempt(generation);
+            });
+        }
+
+        void request_redraw() { // g_mutex held by caller
+            if (g_redraw_pending) return;
+            g_redraw_pending = true;
+            schedule_redraw_attempt(g_redraw_generation);
         }
     }
 
@@ -226,7 +262,7 @@ namespace eka2l1::ios::bridge {
                 g_state->graphics_driver->update_surface_size(eka2l1::vec2(width, height));
                 // Force a redraw at the new size so the screen is re-fitted (not stretched)
                 // immediately on rotation, without waiting for the next guest redraw.
-                redraw_screens_immediately();
+                request_redraw();
             }
         }
     }
@@ -586,19 +622,14 @@ namespace eka2l1::ios::bridge {
     void set_screen_gravity(int gravity) {
         std::lock_guard<std::mutex> guard(g_mutex);
         if (g_state && g_state->launcher_) {
-            g_state->launcher_->set_screen_gravity(static_cast<std::uint32_t>(gravity));
-            // Do not synchronously wait for and submit a graphics frame while a UIKit settings
-            // action is being handled. That path can deadlock the main thread against the guest
-            // presentation thread. The next normal guest frame uses the new gravity; a static
-            // game also receives it safely on its next redraw / relaunch.
+            if (g_state->launcher_->set_screen_gravity(static_cast<std::uint32_t>(gravity))) request_redraw();
         }
     }
 
     void set_screen_rotation(int degrees) {
         std::lock_guard<std::mutex> guard(g_mutex);
         if (g_state && g_state->launcher_) {
-            g_state->launcher_->set_screen_rotation(static_cast<std::uint32_t>(degrees));
-            redraw_screens_immediately();
+            if (g_state->launcher_->set_screen_rotation(static_cast<std::uint32_t>(degrees))) request_redraw();
         }
     }
 
@@ -758,12 +789,15 @@ namespace eka2l1::ios::bridge {
     bool import_backup(const std::string &zip_path) {
         std::lock_guard<std::mutex> guard(g_mutex);
         @autoreleasepool {
-            // Release the ROM mmap / drive file handles before overwriting them.
-            const bool was_running = g_running;
-            shutdown_locked();
-
             NSString *root = [NSString stringWithUTF8String:g_data_dir.c_str()];
             NSFileManager *fm = [NSFileManager defaultManager];
+            NSString *transaction = [root stringByAppendingPathComponent:
+                [@".restore-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+            NSString *staged = [transaction stringByAppendingPathComponent:@"new"];
+            NSString *saved = [transaction stringByAppendingPathComponent:@"original"];
+            if (![fm createDirectoryAtPath:staged withIntermediateDirectories:YES attributes:nil error:nil]) return false;
+            std::vector<backup::fs::path> files;
+            NSMutableSet<NSString *> *seen = [NSMutableSet set];
             mz_zip_archive zip;
             memset(&zip, 0, sizeof(zip));
             bool ok = false;
@@ -773,24 +807,47 @@ namespace eka2l1::ios::bridge {
                 for (mz_uint i = 0; i < n; i++) {
                     if (mz_zip_reader_is_file_a_directory(&zip, i)) continue;
                     mz_zip_archive_file_stat st;
-                    if (!mz_zip_reader_file_stat(&zip, i, &st)) continue;
+                    if (!mz_zip_reader_file_stat(&zip, i, &st)) { ok = false; break; }
                     NSString *rel = [NSString stringWithUTF8String:st.m_filename];
-                    // Guard against path traversal in a malicious archive.
-                    if ([rel hasPrefix:@"/"] || [rel containsString:@".."]) continue;
-                    NSString *dest = [root stringByAppendingPathComponent:rel];
-                    [fm createDirectoryAtPath:[dest stringByDeletingLastPathComponent]
-                  withIntermediateDirectories:YES attributes:nil error:nil];
-                    if (!mz_zip_reader_extract_to_file(&zip, i, [dest UTF8String], 0)) {
-                        ok = false;
+                    bool allowed = false;
+                    for (NSString *scope in backup_paths(true)) {
+                        if ([rel isEqualToString:scope] || [rel hasPrefix:[scope stringByAppendingString:@"/"]]) {
+                            allowed = true;
+                            break;
+                        }
                     }
+                    if (!rel || !allowed || [rel containsString:@"\\"] || [seen containsObject:rel.lowercaseString]
+                        || !backup::safe_relative(backup::fs::path(st.m_filename))) {
+                        ok = false; break;
+                    }
+                    [seen addObject:rel.lowercaseString];
+                    NSString *dest = [staged stringByAppendingPathComponent:rel];
+                    if (![fm createDirectoryAtPath:[dest stringByDeletingLastPathComponent]
+                        withIntermediateDirectories:YES attributes:nil error:nil]
+                        || !mz_zip_reader_extract_to_file(&zip, i, dest.UTF8String, 0)) {
+                        ok = false; break;
+                    }
+                    files.emplace_back(st.m_filename);
                 }
                 mz_zip_reader_end(&zip);
             }
-
-            if (was_running || g_state) {
-                start_locked();
+            if (!ok || files.empty()) {
+                [fm removeItemAtPath:transaction error:nil];
+                return false; // Live data has not been touched.
             }
-            return ok;
+
+            const bool was_running = g_running;
+            shutdown_locked(); // release ROM mappings before replacing files
+            auto outcome = backup::commit(backup::fs::path(root.UTF8String),
+                backup::fs::path(staged.UTF8String), backup::fs::path(saved.UTF8String), files);
+            if (outcome == backup::result::recovery_required) {
+                LOG_ERROR(eka2l1::FRONTEND_CMDLINE, "Backup rollback incomplete; original files retained at {}",
+                    transaction.UTF8String);
+                return false;
+            }
+            [fm removeItemAtPath:transaction error:nil];
+            if (was_running) start_locked();
+            return outcome == backup::result::committed;
         }
     }
 }

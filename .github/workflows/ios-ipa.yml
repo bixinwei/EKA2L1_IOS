@@ -65,6 +65,11 @@ jobs:
       - name: Install Ninja
         run: brew install ninja
 
+      - name: Test backup transactions (host, no simulator)
+        run: |
+          clang++ -std=c++20 -Isrc/emu/ios/include tests/ios/backup_transaction_test.cpp -o "$RUNNER_TEMP/backup-test"
+          "$RUNNER_TEMP/backup-test"
+
       - name: Install CMake 3.31.6 (CMake 4 can't configure old submodules)
         run: |
           curl -fsSL -o cmake.tar.gz \

@@ -81,13 +81,17 @@ namespace eka2l1::ios {
                             state_ptr->window->window_fb_size().x, state_ptr->window->window_fb_size().y);
                     }
 
+                    std::lock_guard<std::mutex> redraw_guard(state_ptr->redraw_mutex);
                     state_ptr->graphics_driver->wait_for(&state_ptr->present_status);
 
                     drivers::graphics_command_builder builder;
                     state_ptr->launcher_->draw(builder, scr, state_ptr->window->window_fb_size().x,
                         state_ptr->window->window_fb_size().y);
 
-                    state_ptr->present_status = -100;
+                    {
+                        std::lock_guard<std::mutex> status_guard(state_ptr->graphics_driver->mut_);
+                        state_ptr->present_status = -100;
+                    }
                     builder.present(&state_ptr->present_status);
 
                     drivers::command_list retrieved = builder.retrieve_command_list();

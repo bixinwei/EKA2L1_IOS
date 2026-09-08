@@ -629,11 +629,12 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
 }
 
 - (void)loadIconsForApps:(NSArray<NSDictionary *> *)list {
+    NSDictionary *cachedIcons = [self.iconCache copy]; // main-thread snapshot
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         for (NSUInteger row = 0; row < list.count; row++) {
             NSDictionary *entry = list[row];
             NSNumber *uidNum = entry[@"uid"];
-            if (self.iconCache[uidNum]) continue;
+            if (cachedIcons[uidNum]) continue;
             eka2l1::ios::bridge::icon_image icon = eka2l1::ios::bridge::get_app_icon((std::uint32_t)uidNum.unsignedLongValue);
             UIImage *img = [self imageFromRGBA:icon.rgba.data() width:icon.width height:icon.height];
             if (img) {

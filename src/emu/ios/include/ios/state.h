@@ -74,6 +74,8 @@ namespace eka2l1::ios {
         config::state conf;
         window_server *winserv;
         int present_status;
+        std::mutex redraw_mutex; // serializes guest and frontend frame producers
+        std::function<void()> on_runtime_failure;
 
         // Incremented on every swapchain present (graphics thread). The frontend samples it to
         // show a frames-per-second figure in the status overlay.

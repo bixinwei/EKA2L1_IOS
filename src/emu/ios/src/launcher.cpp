@@ -652,15 +652,16 @@ namespace eka2l1::ios {
         gravity_ = gravity;
     }
 
-    void launcher::set_screen_gravity(std::uint32_t gravity) {
-        gravity_ = gravity;
+    bool launcher::set_screen_gravity(std::uint32_t gravity) {
+        return gravity_.exchange(gravity, std::memory_order_relaxed) != gravity;
     }
 
-    void launcher::set_screen_rotation(std::uint32_t degrees) {
+    bool launcher::set_screen_rotation(std::uint32_t degrees) {
         if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) {
             degrees = 0;
         }
-        screen_rotation_override_.store(static_cast<int>(degrees), std::memory_order_relaxed);
+        return screen_rotation_override_.exchange(static_cast<int>(degrees), std::memory_order_relaxed)
+            != static_cast<int>(degrees);
     }
 
     void launcher::set_app_refresh_rate(std::uint32_t uid, std::uint32_t fps) {
