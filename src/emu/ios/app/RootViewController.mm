@@ -431,13 +431,14 @@ static const CGFloat EKAGameMenuMargin = 8.0;
         }
         case UIGestureRecognizerStateEnded:
         case UIGestureRecognizerStateCancelled:
-        case UIGestureRecognizerStateFailed:
+        case UIGestureRecognizerStateFailed: {
             [self saveGameMenuButtonPosition];
             [self revealGameMenuButtonAndScheduleFade];
             // Let UIButton's cancelled touch sequence drain before allowing a
             // later tap to open the menu; a drag must never also count as a tap.
             dispatch_async(dispatch_get_main_queue(), ^{ self.menuButtonDragging = NO; });
             break;
+        }
         default:
             break;
     }
