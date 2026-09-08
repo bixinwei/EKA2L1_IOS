@@ -1269,6 +1269,30 @@ namespace eka2l1::epoc {
         return id;
     }
 
+    void window_server_client::remove_capture_key_notifiers_for_user(epoc::window *user) {
+        if (!user) {
+            return;
+        }
+
+        auto &requests = get_ws().key_capture_requests;
+        for (auto map_it = requests.begin(); map_it != requests.end();) {
+            auto &queue = map_it->second;
+            for (auto it = queue.begin(); it != queue.end();) {
+                if (it->user == user) {
+                    it = queue.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            if (queue.empty()) {
+                map_it = requests.erase(map_it);
+            } else {
+                queue.resort();
+                ++map_it;
+            }
+        }
+    }
+
     void window_server_client::send_screen_change_events(epoc::screen *scr) {
         for (auto &request: screen_changes) {
             if (request.user->scr == scr) {

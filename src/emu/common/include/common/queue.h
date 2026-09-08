@@ -42,6 +42,10 @@ namespace eka2l1 {
             return this->c.end();
         }
 
+        iterator erase(iterator it) {
+            return this->c.erase(it);
+        }
+
         bool empty() {
             return this->c.empty();
         }

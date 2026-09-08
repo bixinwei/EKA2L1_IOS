@@ -112,6 +112,11 @@ namespace eka2l1::epoc {
         if (uid_owner_change_process) {
             uid_owner_change_process->unregister_uid_type_change_callback(uid_owner_change_callback_handle);
         }
+
+        // Key-capture notifiers outlive the client-side request. Leaving them
+        // in the server map turns the next captured hardware/overlay key into a
+        // use-after-free of this window group.
+        client->remove_capture_key_notifiers_for_user(this);
         
         remove_from_sibling_list();
 

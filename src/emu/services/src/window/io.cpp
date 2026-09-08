@@ -194,10 +194,19 @@ namespace eka2l1::epoc {
                 kern->unlock();
             }
 
-            // Iterates through key capture requests and deliver those in needs.key_capture_request_queue &rqueue = key_capture_requests[extra_key_evt.key_evt_.code];
-            window_server::key_capture_request_queue &rqueue = serv_->key_capture_requests[evt.key_evt_.code];
+            // Captures are registered by Symbian key code, not by the raw host
+            // scancode. Do not use operator[] here: an unmapped key must not
+            // leave an empty request queue in the server map.
+            const auto captures = serv_->key_capture_requests.find(the_code);
+            if (captures == serv_->key_capture_requests.end()) {
+                continue;
+            }
 
-            for (auto ite = rqueue.end(); ite != rqueue.begin(); ite--) {
+            auto &rqueue = captures->second;
+            // end() is one past the final notifier. Decrement before reading it
+            // so a captured left soft key cannot dereference the end iterator.
+            for (auto ite = rqueue.end(); ite != rqueue.begin();) {
+                --ite;
                 // No need to deliver twice.
                 if (ite->user->id == focus->id) {
                     break;
@@ -205,6 +214,11 @@ namespace eka2l1::epoc {
 
                 switch (ite->type_) {
                 case epoc::event_key_capture_type::normal:
+                    // A normal capture receives the generated key event only;
+                    // up/down capture is the explicit opt-in for both edges.
+                    if (dont_send_extra_key_event) {
+                        break;
+                    }
                     extra_event.handle = ite->user->get_client_handle();
 
                     kern->lock();

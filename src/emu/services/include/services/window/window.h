@@ -291,6 +291,11 @@ namespace eka2l1::epoc {
 
         ws::uid add_capture_key_notifier_to_server(epoc::event_capture_key_notifier &notifier);
 
+        // Capture requests live in the server-wide map, not in an individual
+        // client. Remove every request targeting a window before that window is
+        // destroyed, otherwise a later host key can dereference the dead window.
+        void remove_capture_key_notifiers_for_user(epoc::window *user);
+
         void send_screen_change_events(epoc::screen *scr);
         void send_focus_group_change_events(epoc::screen *scr);
 
