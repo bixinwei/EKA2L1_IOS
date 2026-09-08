@@ -206,8 +206,8 @@ static NSArray<NSNumber *> *EKAScreenRotations(void) { return @[@0, @90, @180, @
                 cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
                 cell.selectionStyle = UITableViewCellSelectionStyleDefault;
             } else {
-                cell.textLabel.text = @"Fantasy CRT & Light Bloom";
-                cell.detailTextLabel.text = @"CRT glow + light streaks";
+                cell.textLabel.text = @"Cinematic Lighting";
+                cell.detailTextLabel.text = @"HDR tone mapping + bloom";
                 UISwitch *sw = [[UISwitch alloc] init];
                 sw.on = _settings.visualEnhancement;
                 [sw addTarget:self action:@selector(onVisualEnhancementChanged:) forControlEvents:UIControlEventValueChanged];

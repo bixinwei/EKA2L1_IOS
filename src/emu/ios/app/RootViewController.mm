@@ -59,6 +59,10 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
     return [ext isEqualToString:@"sis"] || [ext isEqualToString:@"sisx"];
 }
 
+static NSString *const EKAGameMenuPositionKey = @"EKAGameMenuPosition.v1";
+static const CGFloat EKAGameMenuSize = 40.0;
+static const CGFloat EKAGameMenuMargin = 8.0;
+
 @interface EKAAppCell : UITableViewCell
 @end
 
@@ -84,6 +88,9 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
 @property (nonatomic, strong) UIView *toolbar;
 @property (nonatomic, strong) UIButton *deviceButton;
 @property (nonatomic, strong) UIButton *menuButton;
+@property (nonatomic, assign) CGPoint menuButtonDragStartCenter;
+@property (nonatomic, assign) BOOL menuButtonDragging;
+@property (nonatomic, assign) NSUInteger menuButtonFadeGeneration;
 @property (nonatomic, strong) UITableView *appsTable;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIProgressView *progressView;
@@ -184,7 +191,12 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
     self.menuButton.tintColor = [UIColor whiteColor];
     self.menuButton.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.5];
     self.menuButton.layer.cornerRadius = 20;
+    self.menuButton.clipsToBounds = YES;
     [self.menuButton addTarget:self action:@selector(onMenuTouch) forControlEvents:UIControlEventTouchUpInside];
+    [self.menuButton addTarget:self action:@selector(onMenuButtonPressed) forControlEvents:UIControlEventTouchDown];
+    UIPanGestureRecognizer *menuPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onMenuButtonPan:)];
+    menuPan.cancelsTouchesInView = YES;
+    [self.menuButton addGestureRecognizer:menuPan];
     self.menuButton.hidden = YES;
     [self.view addSubview:self.menuButton];
 
@@ -319,21 +331,7 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
         sub.frame = f; bx += f.size.width + 10;
     }
 
-    // The "…" menu button: top-left in landscape; in portrait it goes to the bottom, clear of
-    // the on-screen controls. On iPad the D-pad is left-aligned so the button sits in the empty
-    // bottom-CENTRE gap; on iPhone the D-pad stays centred so the button goes bottom-LEFT.
-    const CGFloat mb = 40;
-    UIEdgeInsets si = self.view.safeAreaInsets;
-    BOOL portrait = (self.view.bounds.size.height >= self.view.bounds.size.width);
-    if (portrait) {
-        BOOL pad = (self.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPad);
-        CGFloat my = self.view.bounds.size.height - si.bottom - mb - 10;
-        CGFloat mx = pad ? (self.view.bounds.size.width - mb) / 2.0   // bottom-centre
-                         : (si.left + 10);                            // bottom-left
-        self.menuButton.frame = CGRectMake(mx, my, mb, mb);
-    } else {
-        self.menuButton.frame = CGRectMake(10, top + 4, mb, mb);
-    }
+    [self layoutGameMenuButton];
 
     CGFloat listY = top + barH;
     self.appsTable.frame = CGRectMake(0, listY, width, self.view.bounds.size.height - listY);
@@ -349,6 +347,102 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
     [self updateChrome];
 }
 
+// The menu position is stored as a fraction of its safe draggable range, so it
+// remains valid across orientation and device-size changes.
+- (CGRect)gameMenuButtonCenterBounds {
+    UIEdgeInsets safe = self.view.safeAreaInsets;
+    const CGFloat half = EKAGameMenuSize * 0.5;
+    CGFloat minX = safe.left + EKAGameMenuMargin + half;
+    CGFloat maxX = self.view.bounds.size.width - safe.right - EKAGameMenuMargin - half;
+    CGFloat minY = safe.top + EKAGameMenuMargin + half;
+    CGFloat maxY = self.view.bounds.size.height - safe.bottom - EKAGameMenuMargin - half;
+    return CGRectMake(minX, minY, MAX(0.0, maxX - minX), MAX(0.0, maxY - minY));
+}
+
+- (CGPoint)defaultGameMenuButtonCenter {
+    UIEdgeInsets safe = self.view.safeAreaInsets;
+    const CGFloat half = EKAGameMenuSize * 0.5;
+    BOOL portrait = self.view.bounds.size.height >= self.view.bounds.size.width;
+    if (!portrait) {
+        return CGPointMake(safe.left + EKAGameMenuMargin + half, safe.top + EKAGameMenuMargin + half);
+    }
+    BOOL pad = self.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPad;
+    return CGPointMake(pad ? self.view.bounds.size.width * 0.5 : safe.left + EKAGameMenuMargin + half,
+                       self.view.bounds.size.height - safe.bottom - EKAGameMenuMargin - half);
+}
+
+- (CGPoint)clampedGameMenuButtonCenter:(CGPoint)center {
+    CGRect range = [self gameMenuButtonCenterBounds];
+    return CGPointMake(MIN(MAX(center.x, CGRectGetMinX(range)), CGRectGetMaxX(range)),
+                       MIN(MAX(center.y, CGRectGetMinY(range)), CGRectGetMaxY(range)));
+}
+
+- (void)layoutGameMenuButton {
+    self.menuButton.bounds = CGRectMake(0, 0, EKAGameMenuSize, EKAGameMenuSize);
+    NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:EKAGameMenuPositionKey];
+    if (!saved) {
+        self.menuButton.center = [self clampedGameMenuButtonCenter:[self defaultGameMenuButtonCenter]];
+        return;
+    }
+    CGRect range = [self gameMenuButtonCenterBounds];
+    CGFloat x = [saved[@"x"] doubleValue];
+    CGFloat y = [saved[@"y"] doubleValue];
+    self.menuButton.center = [self clampedGameMenuButtonCenter:CGPointMake(CGRectGetMinX(range) + CGRectGetWidth(range) * x,
+                                                                            CGRectGetMinY(range) + CGRectGetHeight(range) * y)];
+}
+
+- (void)saveGameMenuButtonPosition {
+    CGRect range = [self gameMenuButtonCenterBounds];
+    CGPoint center = [self clampedGameMenuButtonCenter:self.menuButton.center];
+    CGFloat x = CGRectGetWidth(range) > 0 ? (center.x - CGRectGetMinX(range)) / CGRectGetWidth(range) : 0.5;
+    CGFloat y = CGRectGetHeight(range) > 0 ? (center.y - CGRectGetMinY(range)) / CGRectGetHeight(range) : 0.5;
+    [[NSUserDefaults standardUserDefaults] setObject:@{@"x": @(x), @"y": @(y)} forKey:EKAGameMenuPositionKey];
+}
+
+- (void)revealGameMenuButtonAndScheduleFade {
+    ++self.menuButtonFadeGeneration;
+    self.menuButton.alpha = 1.0;
+    const NSUInteger generation = self.menuButtonFadeGeneration;
+    __weak RootViewController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        RootViewController *selfRef = weakSelf;
+        if (!selfRef || generation != selfRef.menuButtonFadeGeneration || !selfRef.gameRunning || selfRef.menuButton.hidden) return;
+        [UIView animateWithDuration:0.25 animations:^{ selfRef.menuButton.alpha = 0.30; }];
+    });
+}
+
+- (void)onMenuButtonPressed {
+    [self revealGameMenuButtonAndScheduleFade];
+}
+
+- (void)onMenuButtonPan:(UIPanGestureRecognizer *)gesture {
+    switch (gesture.state) {
+        case UIGestureRecognizerStateBegan:
+            self.menuButtonDragging = YES;
+            self.menuButtonDragStartCenter = self.menuButton.center;
+            [self revealGameMenuButtonAndScheduleFade];
+            [self.view bringSubviewToFront:self.menuButton];
+            break;
+        case UIGestureRecognizerStateChanged: {
+            CGPoint delta = [gesture translationInView:self.view];
+            self.menuButton.center = [self clampedGameMenuButtonCenter:CGPointMake(self.menuButtonDragStartCenter.x + delta.x,
+                                                                                      self.menuButtonDragStartCenter.y + delta.y)];
+            break;
+        }
+        case UIGestureRecognizerStateEnded:
+        case UIGestureRecognizerStateCancelled:
+        case UIGestureRecognizerStateFailed:
+            [self saveGameMenuButtonPosition];
+            [self revealGameMenuButtonAndScheduleFade];
+            // Let UIButton's cancelled touch sequence drain before allowing a
+            // later tap to open the menu; a drag must never also count as a tap.
+            dispatch_async(dispatch_get_main_queue(), ^{ self.menuButtonDragging = NO; });
+            break;
+        default:
+            break;
+    }
+}
+
 // Show/hide chrome based on whether a game is running.
 - (void)updateChrome {
     if (self.gameRunning) {
@@ -357,7 +451,11 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
         // The "…" menu button stays available while a game runs (both orientations) so the
         // user can always reach Switch Key Layout / Exit Game. The on-screen keypad follows
         // the selected layout in both orientations; it is hidden only when "None" is chosen.
+        BOOL menuWasHidden = self.menuButton.hidden;
         self.menuButton.hidden = NO;
+        if (menuWasHidden) {
+            [self revealGameMenuButtonAndScheduleFade];
+        }
         [self applyControls];
         // Status (fps/speed) overlay follows the per-game pref; the poll timer also feeds
         // auto-scale, so it runs whenever a game is up.
@@ -374,6 +472,7 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
     } else {
         self.toolbar.hidden = NO;
         self.menuButton.hidden = YES;
+        ++self.menuButtonFadeGeneration;
         self.statusOverlay.hidden = YES;
         [self stopPollTimer];
         self.controlsView.customLayout = nil;
@@ -694,7 +793,7 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
 // The visual enhancement is a purpose-built GLES post-process bundled with the iOS port.
 // It is selected here rather than overloading the user's technical Upscale Shader preference.
 - (NSString *)effectiveFilterShaderForSettings:(EKAGameSettings *)settings {
-    return settings.visualEnhancement ? @"fantasy-crt" : (settings.filterShader ?: @"");
+    return settings.visualEnhancement ? @"cinematic-light" : (settings.filterShader ?: @"");
 }
 
 - (void)launchAppUid:(std::uint32_t)uid {
@@ -1066,6 +1165,9 @@ static BOOL EKAIsSisPackagePath(NSString *path) {
 
 // Touch path (the "…" button): the native iOS action sheet ("liquid glass" popup).
 - (void)onMenuTouch {
+    if (self.menuButtonDragging) {
+        return;
+    }
     if (!self.gameRunning) {
         return;
     }
