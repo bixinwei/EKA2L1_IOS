@@ -8,7 +8,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface TouchMappingStore : NSObject
 
-// Each mapping is { id: UUID string, tokens: [controller token], x: 0..1, y: 0..1 }.
+// Button mapping: { id, type:"button", tokens:[controller token], x:0..1, y:0..1 }.
+// Direction disk:  { id, type:"dpad", x:0..1, y:0..1, size:0.04..0.30 }.
 + (NSArray<NSDictionary *> *)mappingsForUid:(uint32_t)uid;
 + (void)saveMappings:(NSArray<NSDictionary *> *)mappings forUid:(uint32_t)uid;
 + (void)removeMappingsForUid:(uint32_t)uid;

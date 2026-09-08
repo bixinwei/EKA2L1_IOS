@@ -29,7 +29,12 @@
         _gameView = gameView;
         _mappingsChanged = [mappingsChanged copy];
         _editingChanged = [editingChanged copy];
-        _mappings = [[TouchMappingStore mappingsForUid:uid] mutableCopy] ?: [NSMutableArray array];
+        // JSON deserialization returns immutable dictionaries. The editor updates x/y while
+        // dragging, so make every record mutable (a shallow mutable array copy crashes here).
+        _mappings = [NSMutableArray array];
+        for (NSDictionary *mapping in [TouchMappingStore mappingsForUid:uid]) {
+            [_mappings addObject:[mapping mutableCopy]];
+        }
         _markers = [NSMutableDictionary dictionary];
         self.modalPresentationStyle = UIModalPresentationOverFullScreen;
         self.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
@@ -142,6 +147,10 @@
     for (NSMutableDictionary *mapping in _mappings) {
         UIButton *marker = _markers[mapping[@"id"]];
         if (!marker || CGRectIsEmpty(rect)) continue;
+        const BOOL isDisk = [mapping[@"type"] isEqualToString:@"dpad"];
+        const CGFloat diameter = isDisk ? MAX(72.0, MIN(190.0, rect.size.width * [mapping[@"size"] doubleValue] * 2.0)) : 54.0;
+        marker.bounds = CGRectMake(0, 0, diameter, diameter);
+        marker.layer.cornerRadius = diameter / 2.0;
         marker.center = CGPointMake(CGRectGetMinX(rect) + rect.size.width * [mapping[@"x"] doubleValue],
                                     CGRectGetMinY(rect) + rect.size.height * [mapping[@"y"] doubleValue]);
     }
@@ -158,12 +167,16 @@
         marker.layer.borderWidth = 2.0;
         marker.layer.cornerRadius = 27.0;
         marker.clipsToBounds = YES;
-        marker.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-        marker.titleLabel.numberOfLines = 2;
+        const BOOL isDisk = [mapping[@"type"] isEqualToString:@"dpad"];
+        marker.titleLabel.font = [UIFont systemFontOfSize:isDisk ? 22 : 11 weight:UIFontWeightBold];
+        marker.titleLabel.numberOfLines = isDisk ? 3 : 2;
         marker.titleLabel.textAlignment = NSTextAlignmentCenter;
-        [marker setTitle:[KeybindStore controllerComboName:mapping[@"tokens"]] forState:UIControlStateNormal];
+        [marker setTitle:isDisk ? @"↑\n←  →\n↓" : [KeybindStore controllerComboName:mapping[@"tokens"]] forState:UIControlStateNormal];
         marker.accessibilityIdentifier = mapping[@"id"];
-        [marker addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragMarker:)]];
+        UIPanGestureRecognizer *drag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragMarker:)];
+        drag.maximumNumberOfTouches = 1; // leave two-finger gestures exclusively to direction-disk scaling
+        [marker addGestureRecognizer:drag];
+        if (isDisk) [marker addGestureRecognizer:[[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(scaleDirectionDisk:)]];
         UILongPressGestureRecognizer *remove = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(removeMarker:)];
         remove.minimumPressDuration = 0.55;
         [marker addGestureRecognizer:remove];
@@ -185,6 +198,16 @@
 
 - (void)addMapping {
     if (_pendingTokens) return;
+    UIAlertController *choice = [UIAlertController alertControllerWithTitle:@"Add touch mapping" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [choice addAction:[UIAlertAction actionWithTitle:@"Button target" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self beginButtonMapping]; }]];
+    [choice addAction:[UIAlertAction actionWithTitle:@"Direction disk" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self addDirectionDisk]; }]];
+    [choice addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    choice.popoverPresentationController.sourceView = _bar;
+    choice.popoverPresentationController.sourceRect = _bar.bounds;
+    [self presentViewController:choice animated:YES completion:nil];
+}
+
+- (void)beginButtonMapping {
     __weak typeof(self) weakSelf = self;
     KeybindCaptureViewController *capture = [[KeybindCaptureViewController alloc] initForController:YES completion:^(NSArray *combo) {
         TouchMappingEditorViewController *selfRef = weakSelf;
@@ -194,6 +217,16 @@
         selfRef->_hint.textColor = [UIColor colorWithRed:0.35 green:0.80 blue:1.0 alpha:1.0];
     }];
     [self presentViewController:capture animated:YES completion:nil];
+}
+
+- (void)addDirectionDisk {
+    NSMutableDictionary *disk = [@{ @"id": [[NSUUID UUID] UUIDString], @"type": @"dpad",
+                                    @"x": @0.5, @"y": @0.5, @"size": @0.13 } mutableCopy];
+    [_mappings addObject:disk];
+    _hint.text = @"Drag the direction disk. Pinch it to resize.";
+    _hint.textColor = [UIColor colorWithWhite:0.78 alpha:1.0];
+    [self persist];
+    [self rebuildMarkers];
 }
 
 - (void)clearMappings {
@@ -225,12 +258,27 @@
     if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled || pan.state == UIGestureRecognizerStateFailed) [self persist];
 }
 
+- (void)scaleDirectionDisk:(UIPinchGestureRecognizer *)pinch {
+    UIButton *marker = (UIButton *)pinch.view;
+    NSMutableDictionary *mapping = [self mappingForIdentifier:marker.accessibilityIdentifier];
+    if (!mapping || ![mapping[@"type"] isEqualToString:@"dpad"]) return;
+    if (pinch.state == UIGestureRecognizerStateBegan) marker.accessibilityValue = [mapping[@"size"] stringValue];
+    const CGFloat initial = marker.accessibilityValue.doubleValue;
+    mapping[@"size"] = @(MAX(0.04, MIN(0.30, initial * pinch.scale)));
+    [self positionMarkers];
+    if (pinch.state == UIGestureRecognizerStateEnded || pinch.state == UIGestureRecognizerStateCancelled || pinch.state == UIGestureRecognizerStateFailed) {
+        marker.accessibilityValue = nil;
+        [self persist];
+    }
+}
+
 - (void)removeMarker:(UILongPressGestureRecognizer *)press {
     if (press.state != UIGestureRecognizerStateBegan) return;
     UIButton *marker = (UIButton *)press.view;
     NSMutableDictionary *mapping = [self mappingForIdentifier:marker.accessibilityIdentifier];
     if (!mapping) return;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Remove mapping?" message:[KeybindStore controllerComboName:mapping[@"tokens"]] preferredStyle:UIAlertControllerStyleAlert];
+    NSString *name = [mapping[@"type"] isEqualToString:@"dpad"] ? @"Direction disk" : [KeybindStore controllerComboName:mapping[@"tokens"]];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Remove mapping?" message:name preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Remove" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         [self->_mappings removeObject:mapping];
@@ -248,7 +296,7 @@
     if (!CGRectContainsPoint(rect, point)) return;
     CGFloat x = (point.x - CGRectGetMinX(rect)) / rect.size.width;
     CGFloat y = (point.y - CGRectGetMinY(rect)) / rect.size.height;
-    NSMutableDictionary *mapping = [@{ @"id": [[NSUUID UUID] UUIDString], @"tokens": _pendingTokens,
+    NSMutableDictionary *mapping = [@{ @"id": [[NSUUID UUID] UUIDString], @"type": @"button", @"tokens": _pendingTokens,
                                         @"x": @(x), @"y": @(y) } mutableCopy];
     [_mappings addObject:mapping];
     _pendingTokens = nil;

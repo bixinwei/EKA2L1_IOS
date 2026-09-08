@@ -153,12 +153,14 @@
     if (identifier.length == 0 || !eka2l1::ios::bridge::is_running()) return;
     NSNumber *existing = _virtualTouchSlots[identifier];
     if (!active && !existing) return;
+    const BOOL wasActive = (existing != nil);
     const int pointerId = active ? [self allocateSlotForVirtualTouch:identifier] : existing.intValue;
     const CGFloat scale = self.contentScaleFactor;
     const int px = (int)(MAX(0.0, MIN(1.0, x)) * self.bounds.size.width * scale);
     const int py = (int)(MAX(0.0, MIN(1.0, y)) * self.bounds.size.height * scale);
-    eka2l1::ios::bridge::touch(px, py, active ? eka2l1::ios::bridge::touch_action_down
-                                               : eka2l1::ios::bridge::touch_action_up, pointerId);
+    const eka2l1::ios::bridge::touch_action action = !active ? eka2l1::ios::bridge::touch_action_up
+        : (wasActive ? eka2l1::ios::bridge::touch_action_move : eka2l1::ios::bridge::touch_action_down);
+    eka2l1::ios::bridge::touch(px, py, action, pointerId);
     if (!active) [_virtualTouchSlots removeObjectForKey:identifier];
 }
 
