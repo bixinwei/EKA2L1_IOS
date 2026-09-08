@@ -42,7 +42,7 @@
             [out addObject:@{ @"id": identifier, @"type": type,
                               @"x": @(MAX(0.0, MIN(1.0, x.doubleValue))),
                               @"y": @(MAX(0.0, MIN(1.0, y.doubleValue))),
-                              @"size": @(MAX(0.06, MIN(0.45, requestedSize)) }];
+                              @"size": @(MAX(0.06, MIN(0.45, requestedSize))) }];
             continue;
         }
         if (![tokens isKindOfClass:[NSArray class]] || tokens.count == 0) continue;
