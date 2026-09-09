@@ -1286,6 +1286,14 @@ static const CGFloat EKAGameMenuMargin = 8.0;
 
 - (void)inputManagerSetTouchMapping:(NSDictionary *)mapping active:(BOOL)active {
     if (!self.gameRunning) return;
+    if (active && [mapping[@"type"] isEqualToString:@"dpad"]) {
+        [self.emuView setVirtualDirectionTouch:mapping[@"id"]
+                                       centerX:[mapping[@"centerX"] doubleValue]
+                                       centerY:[mapping[@"centerY"] doubleValue]
+                                       targetX:[mapping[@"x"] doubleValue]
+                                       targetY:[mapping[@"y"] doubleValue]];
+        return;
+    }
     [self.emuView setVirtualTouch:mapping[@"id"] normalizedX:[mapping[@"x"] doubleValue]
                        normalizedY:[mapping[@"y"] doubleValue] active:active];
 }

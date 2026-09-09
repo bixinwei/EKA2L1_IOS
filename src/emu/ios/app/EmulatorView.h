@@ -36,6 +36,11 @@
 // Controller-to-touch mappings share the same guest pointer pool as real UIKit fingers, so a
 // mapped press never collides with a physical multi-touch pointer number.
 - (void)setVirtualTouch:(NSString *)identifier normalizedX:(CGFloat)x normalizedY:(CGFloat)y active:(BOOL)active;
+// A touch-screen game's on-screen joystick must be grabbed at its centre before the finger
+// travels outward. This sends that down-then-move sequence using one guest pointer slot.
+- (void)setVirtualDirectionTouch:(NSString *)identifier
+                         centerX:(CGFloat)centerX centerY:(CGFloat)centerY
+                         targetX:(CGFloat)targetX targetY:(CGFloat)targetY;
 - (void)releaseAllVirtualTouches;
 
 @end

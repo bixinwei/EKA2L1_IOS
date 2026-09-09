@@ -368,6 +368,10 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         if (direction.x == 0.0 && direction.y == 0.0) continue;
         NSMutableDictionary *event = [mapping mutableCopy];
         const CGFloat radius = [mapping[@"size"] doubleValue];
+        // Keep the original centre as well as the moved target. Touch-screen joysticks need
+        // their first down event at the centre before a move reaches a direction.
+        event[@"centerX"] = mapping[@"x"];
+        event[@"centerY"] = mapping[@"y"];
         event[@"x"] = @(MAX(0.0, MIN(1.0, [mapping[@"x"] doubleValue] + direction.x * radius)));
         event[@"y"] = @(MAX(0.0, MIN(1.0, [mapping[@"y"] doubleValue] + direction.y * radius)));
         [self.delegate inputManagerSetTouchMapping:event active:YES];

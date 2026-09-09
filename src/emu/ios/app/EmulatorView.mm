@@ -164,6 +164,30 @@
     if (!active) [_virtualTouchSlots removeObjectForKey:identifier];
 }
 
+- (void)setVirtualDirectionTouch:(NSString *)identifier
+                         centerX:(CGFloat)centerX centerY:(CGFloat)centerY
+                         targetX:(CGFloat)targetX targetY:(CGFloat)targetY {
+    if (identifier.length == 0 || !eka2l1::ios::bridge::is_running()) return;
+
+    NSNumber *existing = _virtualTouchSlots[identifier];
+    const int pointerId = [self allocateSlotForVirtualTouch:identifier];
+    const CGFloat scale = self.contentScaleFactor;
+    const CGFloat width = self.bounds.size.width * scale;
+    const CGFloat height = self.bounds.size.height * scale;
+    const int centerPX = (int)(MAX(0.0, MIN(1.0, centerX)) * width);
+    const int centerPY = (int)(MAX(0.0, MIN(1.0, centerY)) * height);
+    const int targetPX = (int)(MAX(0.0, MIN(1.0, targetX)) * width);
+    const int targetPY = (int)(MAX(0.0, MIN(1.0, targetY)) * height);
+
+    // Mirror GameControlsView's real-finger joystick: capture the game's joystick at its
+    // centre first, then move that same pointer to the requested direction. A first event at
+    // the rim is ignored by many touch games because it misses their joystick hit target.
+    if (!existing) {
+        eka2l1::ios::bridge::touch(centerPX, centerPY, eka2l1::ios::bridge::touch_action_down, pointerId);
+    }
+    eka2l1::ios::bridge::touch(targetPX, targetPY, eka2l1::ios::bridge::touch_action_move, pointerId);
+}
+
 - (void)releaseAllVirtualTouches {
     for (NSString *identifier in _virtualTouchSlots.allKeys.copy) {
         NSNumber *slot = _virtualTouchSlots[identifier];
