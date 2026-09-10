@@ -152,12 +152,14 @@ static NSDictionary *Entry(NSArray *kb, NSArray *ctrl) {
     // N-Gage helper *: same scancode as Android's keypad * overlay, keyboard keypad-* + X,
     // controller B.
     m[@(EKAActionBKey).stringValue]      = Entry(@[@[KC(GCKeyCodeKeypadAsterisk)], @[KC(GCKeyCodeKeyX)]], @[@[@"B"]]);
-    m[@(EKAActionNum0).stringValue]      = Entry(@[], @[]);
+    // N-Gage dedicated A/B actions are represented by keypad 5/0. Keep those physical
+    // keyboard keys available by default; users can still override them per game.
+    m[@(EKAActionNum0).stringValue]      = Entry(@[@[KC(GCKeyCodeZero)]], @[]);
     m[@(EKAActionNum1).stringValue]      = Entry(@[], @[]);
     m[@(EKAActionNum2).stringValue]      = Entry(@[], @[]);
     m[@(EKAActionNum3).stringValue]      = Entry(@[], @[]);
     m[@(EKAActionNum4).stringValue]      = Entry(@[], @[]);
-    m[@(EKAActionNum5).stringValue]      = Entry(@[], @[]);
+    m[@(EKAActionNum5).stringValue]      = Entry(@[@[KC(GCKeyCodeFive)]], @[]);
     m[@(EKAActionNum6).stringValue]      = Entry(@[], @[]);
     m[@(EKAActionNum7).stringValue]      = Entry(@[], @[]);
     m[@(EKAActionNum8).stringValue]      = Entry(@[], @[]);
