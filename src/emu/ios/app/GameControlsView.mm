@@ -390,12 +390,14 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [self addControl:@[@(SC_SOFT_LEFT)] label:@"L" rect:CGRectMake(leftX, softYa, softW, softH)];
             [self addControl:@[@(SC_SOFT_RIGHT)] label:@"R" rect:CGRectMake(rightX, softYa, softW, softH)];
 
-            // Extra keypad # and * buttons stacked to the right of the D-pad. These use the same
-            // scancodes as the regular phone keypad buttons, matching Android's overlay.
+            // N-Gage dedicated A/B are keypad 5/0. Keep them beside the legacy #/* keys.
             CGFloat aD = MIN(70 * s, (W - dpad) / 2.0 - margin);
             if (aD >= 34) {
                 CGFloat aX = W - margin - aD;
                 CGFloat midY = dpadTop + dpad / 2.0;
+                CGFloat left = aX - aD - 6;
+                [self addControl:@[@(SC_NUM5)] label:@"A" rect:CGRectMake(left, midY - aD - 5, aD, aD)];
+                [self addControl:@[@(SC_NUM0)] label:@"B" rect:CGRectMake(left, midY + 5, aD, aD)];
                 [self addControl:@[@(SC_POUND)] label:@"#" rect:CGRectMake(aX, midY - aD - 5, aD, aD)];
                 [self addControl:@[@(SC_STAR)] label:@"*" rect:CGRectMake(aX, midY + 5, aD, aD)];
             }
@@ -413,9 +415,12 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [self addControl:@[@(SC_SOFT_LEFT)] label:@"L" rect:CGRectMake(lX, softYj, softW, softH)];
             [self addControl:@[@(SC_SOFT_RIGHT)] label:@"R" rect:CGRectMake(W - margin - softW, softYj, softW, softH)];
 
-            // Right side: # and * stacked at the right edge (# above *), FIRE to their left.
+            // Right side: N-Gage A/B (5/0) and #/* in a compact 2x2 cluster.
             CGFloat aD = MIN(70 * s, W * 0.5 - margin);
             CGFloat aX = W - margin - aD;
+            CGFloat left = aX - aD - 6;
+            [self addControl:@[@(SC_NUM5)] label:@"A" rect:CGRectMake(left, bottom - 2 * aD - 6, aD, aD)];
+            [self addControl:@[@(SC_NUM0)] label:@"B" rect:CGRectMake(left, bottom - aD, aD, aD)];
             [self addControl:@[@(SC_POUND)] label:@"#" rect:CGRectMake(aX, bottom - 2 * aD - 6, aD, aD)];
             [self addControl:@[@(SC_STAR)]  label:@"*" rect:CGRectMake(aX, bottom - aD, aD, aD)];
 
@@ -770,6 +775,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [out addObject:EKAKeyEl(SC_SOFT_RIGHT, @"R", 0.55, 0.54, 0.12)];
             [out addObject:EKAKeyEl(SC_POUND, @"#", 0.88, 0.70, 0.13)];
             [out addObject:EKAKeyEl(SC_STAR, @"*", 0.88, 0.86, 0.13)];
+            [out addObject:EKAKeyEl(SC_NUM5, @"A", 0.72, 0.70, 0.13)];
+            [out addObject:EKAKeyEl(SC_NUM0, @"B", 0.72, 0.86, 0.13)];
             break;
         case 6:   // Joystick bottom-left, FIRE + #/* bottom-right, L/R above
             [out addObject:EKAJoyEl(0.22, 0.76, 0.40)];
@@ -777,6 +784,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [out addObject:EKAKeyEl(SC_SOFT_RIGHT, @"R", 0.88, 0.50, 0.12)];
             [out addObject:EKAKeyEl(SC_POUND, @"#", 0.88, 0.68, 0.13)];
             [out addObject:EKAKeyEl(SC_STAR, @"*", 0.88, 0.85, 0.13)];
+            [out addObject:EKAKeyEl(SC_NUM5, @"A", 0.72, 0.68, 0.13)];
+            [out addObject:EKAKeyEl(SC_NUM0, @"B", 0.72, 0.85, 0.13)];
             [out addObject:EKAKeyEl(SC_FIRE, @"FIRE", 0.64, 0.80, 0.16)];
             break;
         case 2:   // Centred numeric keypad + softkeys, no D-pad
@@ -809,6 +818,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         @{ @"label": @"D-pad", @"codes": @[], @"dpad": @(YES) },
         @{ @"label": @"Joystick", @"codes": @[], @"joystick": @(YES) },
         @{ @"label": @"FIRE", @"codes": @[@(SC_FIRE)], @"dpad": @(NO) },
+        @{ @"label": @"A", @"codes": @[@(SC_NUM5)], @"dpad": @(NO) },
+        @{ @"label": @"B", @"codes": @[@(SC_NUM0)], @"dpad": @(NO) },
         @{ @"label": @"L", @"codes": @[@(SC_SOFT_LEFT)], @"dpad": @(NO) },
         @{ @"label": @"R", @"codes": @[@(SC_SOFT_RIGHT)], @"dpad": @(NO) },
         @{ @"label": @"↑", @"codes": @[@(SC_UP)], @"dpad": @(NO) },
