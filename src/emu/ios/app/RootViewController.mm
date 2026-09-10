@@ -858,7 +858,10 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     NSArray<NSDictionary *> *custom = layouts[layoutKey];
     self.controlsView.overlayOpacity = s.controlsOpacity;
     self.controlsView.hapticsEnabled = s.hapticFeedback;
-    self.controlsView.autoScaleButtons = [self autoScaleForCurrentOrientation];
+    // The virtual layout must keep its authored geometry. Auto-scale used the guest frame to
+    // recompute a smaller factor during play, which made a selected or edited layout shrink
+    // after launch/orientation changes. Keep it permanently disabled for all layouts.
+    self.controlsView.autoScaleButtons = NO;
     self.controlsView.customLayout = (custom.count ? custom : nil);
     self.controlsView.layout = self.keyLayout;
 }
