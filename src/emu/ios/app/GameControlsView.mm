@@ -29,8 +29,8 @@ enum {
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
     // Verified against the installed N-Gage game: Application 1B / 1C.
     SC_NGAGE_A = 0xE4,
-    // B/C are only layout placeholders until the interactive probe identifies them.
-    SC_NGAGE_B = 0xE5, SC_NGAGE_C = 0xE6
+    // B remains unverified; C was confirmed by the final-batch on-device probe.
+    SC_NGAGE_B = 0xE5, SC_NGAGE_C = 0x01
 };
 
 static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
@@ -839,35 +839,38 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     });
 }
 
-// C fired only in the final automatic batch. Expose exactly that final batch as a picker, so each
-// candidate can be tested deliberately without replaying the preceding scan codes.
-- (NSArray<NSNumber *> *)scanCandidateCodesForC {
+// C fired in the final automatic batch and B in batch two. Expose only the relevant batch, so
+// each candidate can be tested deliberately without replaying earlier scan codes.
+- (NSArray<NSNumber *> *)scanCandidateCodesForCurrentTarget {
     if (_scanCandidateCodes) return _scanCandidateCodes;
     NSArray<NSNumber *> *allCodes = [self scanProbeCodeOrder];
     const NSUInteger batchSize = 20;
-    NSUInteger start = ((allCodes.count - 1) / batchSize) * batchSize;
+    NSUInteger start = [_scanProbeTarget isEqualToString:@"B"] ? batchSize : ((allCodes.count - 1) / batchSize) * batchSize;
     _scanCandidateCodes = [allCodes subarrayWithRange:NSMakeRange(start, allCodes.count - start)];
+    if ([_scanProbeTarget isEqualToString:@"B"] && _scanCandidateCodes.count > batchSize) {
+        _scanCandidateCodes = [_scanCandidateCodes subarrayWithRange:NSMakeRange(0, batchSize)];
+    }
     return _scanCandidateCodes;
 }
 
 - (NSInteger)numberOfComponentsInPickerView:(UIPickerView *)pickerView { return 1; }
 
 - (NSInteger)pickerView:(UIPickerView *)pickerView numberOfRowsInComponent:(NSInteger)component {
-    return [self scanCandidateCodesForC].count;
+    return [self scanCandidateCodesForCurrentTarget].count;
 }
 
 - (NSString *)pickerView:(UIPickerView *)pickerView titleForRow:(NSInteger)row forComponent:(NSInteger)component {
-    return [NSString stringWithFormat:@"0x%02lX", (unsigned long)[self scanCandidateCodesForC][row].unsignedIntegerValue];
+    return [NSString stringWithFormat:@"0x%02lX", (unsigned long)[self scanCandidateCodesForCurrentTarget][row].unsignedIntegerValue];
 }
 
 - (void)pickerView:(UIPickerView *)pickerView didSelectRow:(NSInteger)row inComponent:(NSInteger)component {
-    _scanProbeStatus.text = [NSString stringWithFormat:@"当前选择：0x%02lX。点击“发送测试码”验证。", (unsigned long)[self scanCandidateCodesForC][row].unsignedIntegerValue];
+    _scanProbeStatus.text = [NSString stringWithFormat:@"当前选择：0x%02lX。点击“发送测试码”验证。", (unsigned long)[self scanCandidateCodesForCurrentTarget][row].unsignedIntegerValue];
 }
 
 - (void)sendSelectedCCandidate {
     NSInteger row = [_scanCandidatePicker selectedRowInComponent:0];
     if (row < 0) row = 0;
-    int code = [self scanCandidateCodesForC][row].intValue;
+    int code = [self scanCandidateCodesForCurrentTarget][row].intValue;
     _scanProbeStatus.text = [NSString stringWithFormat:@"已发送：0x%02X", code];
     eka2l1::ios::bridge::key(code, true);
     if (self.hapticsEnabled) { if (!_haptic) _haptic = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight]; [_haptic impactOccurred]; }
@@ -876,9 +879,9 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     });
 }
 
-- (void)showCCandidatePicker {
+- (void)showCandidatePickerForTarget:(NSString *)target {
     if (_scanProbe) [self closeScanProbe];
-    _scanProbeTarget = @"C";
+    _scanProbeTarget = target;
     _scanProbeIsCandidateSelector = YES;
     CGFloat width = MIN(340, MAX(280, self.bounds.size.width - 32));
     CGFloat height = 315;
@@ -891,7 +894,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     _scanProbe.clipsToBounds = YES;
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(14, 0, width - 80, 42)];
-    title.text = @"N-Gage C · 候选码确认";
+    title.text = [NSString stringWithFormat:@"N-Gage %@ · 候选码确认", target];
     title.textColor = UIColor.whiteColor;
     title.font = [UIFont boldSystemFontOfSize:16];
     title.userInteractionEnabled = YES;
@@ -904,7 +907,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [_scanProbe addSubview:close];
 
     UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(14, 42, width - 28, 22)];
-    hint.text = @"C 已在最后一批触发；逐个选择并发送即可定位。";
+    hint.text = [target isEqualToString:@"B"] ? @"B 在第二批触发；逐个选择并发送即可定位。" : @"逐个选择并发送即可定位。";
     hint.textColor = [UIColor colorWithWhite:0.76 alpha:1];
     hint.font = [UIFont systemFontOfSize:11];
     [_scanProbe addSubview:hint];
@@ -915,7 +918,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     _scanCandidatePicker.layer.cornerRadius = 8;
     [_scanProbe addSubview:_scanCandidatePicker];
     _scanProbeStatus = [[UILabel alloc] initWithFrame:CGRectMake(14, 223, width - 28, 24)];
-    _scanProbeStatus.text = [NSString stringWithFormat:@"当前选择：0x%02lX", (unsigned long)[self scanCandidateCodesForC][0].unsignedIntegerValue];
+    _scanProbeStatus.text = [NSString stringWithFormat:@"当前选择：0x%02lX", (unsigned long)[self scanCandidateCodesForCurrentTarget][0].unsignedIntegerValue];
     _scanProbeStatus.textAlignment = NSTextAlignmentCenter;
     _scanProbeStatus.textColor = [UIColor colorWithWhite:0.92 alpha:1];
     _scanProbeStatus.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
@@ -932,7 +935,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 }
 
 - (void)showScanProbeForTarget:(NSString *)target {
-    if ([target isEqualToString:@"C"]) { [self showCCandidatePicker]; return; }
+    if ([target isEqualToString:@"B"]) { [self showCandidatePickerForTarget:target]; return; }
     if (_scanProbe) { [self closeScanProbe]; }
     _scanProbeTarget = [target copy];
     _scanProbeCodes = [self scanProbeCodeOrder];
@@ -989,7 +992,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         NSInteger idx = [self controlIndexAtPoint:p];
         if (idx < 0) continue;
         NSString *label = _controls[idx][@"label"];
-        if ([label isEqualToString:@"B"] || [label isEqualToString:@"C"]) {
+        if ([label isEqualToString:@"B"]) {
             [self showScanProbeForTarget:label];
             continue;
         }
