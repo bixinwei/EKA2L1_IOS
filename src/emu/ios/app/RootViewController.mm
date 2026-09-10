@@ -842,8 +842,9 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     }
 }
 
-// Apply the running game's on-screen controls: a per-game custom layout for the current
-// orientation if one exists, otherwise the built-in keyLayout. Custom layout overrides.
+// Apply the running game's on-screen controls. A custom layout is scoped to both the current
+// orientation and the selected Key Layout, so a layout edited for Joystick never replaces the
+// user's Layout 1 (or vice versa).
 - (void)applyControls {
     if (!self.gameRunning) {
         self.controlsView.customLayout = nil;
@@ -852,7 +853,9 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     }
     EKAGameSettings *s = [GameSettingsStore settingsForUid:self.currentGameUid];
     BOOL portrait = self.view.bounds.size.height >= self.view.bounds.size.width;
-    NSArray<NSDictionary *> *custom = portrait ? s.customLayoutPortrait : s.customLayoutLandscape;
+    NSString *layoutKey = [NSString stringWithFormat:@"%ld", (long)self.keyLayout];
+    NSDictionary *layouts = portrait ? s.customLayoutsPortraitByKeyLayout : s.customLayoutsLandscapeByKeyLayout;
+    NSArray<NSDictionary *> *custom = layouts[layoutKey];
     self.controlsView.overlayOpacity = s.controlsOpacity;
     self.controlsView.hapticsEnabled = s.hapticFeedback;
     self.controlsView.autoScaleButtons = [self autoScaleForCurrentOrientation];
@@ -1136,14 +1139,6 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     if (self.gameRunning) {
         EKAGameSettings *s = [GameSettingsStore settingsForUid:self.currentGameUid];
         s.keyLayout = i;
-        // A selected built-in layout must not remain shadowed by an older custom layout for the
-        // current orientation. Keep the other orientation's custom layout intact.
-        BOOL portrait = self.view.bounds.size.height >= self.view.bounds.size.width;
-        if (portrait) {
-            s.customLayoutPortrait = nil;
-        } else {
-            s.customLayoutLandscape = nil;
-        }
         [GameSettingsStore saveSettings:s forUid:self.currentGameUid];
     }
     [self updateChrome];

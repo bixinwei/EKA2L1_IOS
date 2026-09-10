@@ -27,14 +27,10 @@ enum {
     SC_STAR = '*', SC_POUND = 0x7F,
     SC_UP = 0x10, SC_DOWN = 0x11, SC_LEFT = 0x0E, SC_RIGHT = 0x0F,
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
-    // N-Gage has dedicated A/B device keys. A few titles instead read the
-    // physical keypad contact 5 (Device5 scan code). Keep it as a compatibility
-    // alias without replacing the dedicated A/B events. Device0 is also used
-    // by this emulator for the left soft key, so B keeps its legacy raw 0 alias
-    // rather than generating a conflicting soft-key event.
-    SC_NGAGE_A = 0xAE, SC_NGAGE_B = 0xAF,
-    SC_NGAGE_A_KEYPAD = 0xA9, SC_NGAGE_A_FIRE = 0xA7,
-    SC_NGAGE_B_KEYPAD = '0'
+    // N-Gage 2.0 on the emulated N95 maps its actions through the slide-out
+    // multimedia controls: Play (182) and Stop (183). DeviceA/DeviceB are
+    // unrelated generic hardware keys on this device, so do not use them here.
+    SC_NGAGE_A = 0xB6, SC_NGAGE_B = 0xB7
 };
 
 static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
@@ -62,9 +58,7 @@ static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
 // Normalized element builders (cx/cy are fractions of width/height, size of min(W,H)). Used by
 // +customLayoutForBuiltinLayout: to render a built-in layout as editable custom elements.
 static NSDictionary *EKAKeyEl(int code, NSString *label, CGFloat cx, CGFloat cy, CGFloat size) {
-    NSArray *codes = (code == SC_NGAGE_A) ? @[@(SC_NGAGE_A), @(SC_NGAGE_A_KEYPAD), @(SC_NGAGE_A_FIRE)]
-        : (code == SC_NGAGE_B) ? @[@(SC_NGAGE_B), @(SC_NGAGE_B_KEYPAD)] : @[@(code)];
-    return @{ @"type": @"key", @"codes": codes, @"label": label,
+    return @{ @"type": @"key", @"codes": @[@(code)], @"label": label,
               @"cx": @(cx), @"cy": @(cy), @"size": @(size) };
 }
 static NSDictionary *EKADpadEl(CGFloat cx, CGFloat cy, CGFloat size) {
@@ -248,16 +242,15 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         _elements = [NSMutableArray array];
         for (NSDictionary *el in customLayout) {
             NSMutableDictionary *copy = [el mutableCopy];
-            // Migrate layouts saved before the dedicated A/B compatibility aliases existed.
-            // Without this, switching to an older per-game custom layout silently loses the
-            // keypad scan code needed by titles that do not consume DeviceA/DeviceB.
+            // Migrate layouts saved while A/B used generic DeviceA/DeviceB or keypad guesses.
+            // N-Gage 2.0 interprets the N95 multimedia Play/Stop events instead.
             if ([copy[@"type"] isEqualToString:@"key"]) {
                 NSString *label = copy[@"label"];
                 NSArray *codes = copy[@"codes"];
-                if ([label isEqualToString:@"A"] && (![codes containsObject:@(SC_NGAGE_A_KEYPAD)] || ![codes containsObject:@(SC_NGAGE_A_FIRE)])) {
-                    copy[@"codes"] = @[@(SC_NGAGE_A), @(SC_NGAGE_A_KEYPAD), @(SC_NGAGE_A_FIRE)];
-                } else if ([label isEqualToString:@"B"] && ![codes containsObject:@(SC_NGAGE_B_KEYPAD)]) {
-                    copy[@"codes"] = @[@(SC_NGAGE_B), @(SC_NGAGE_B_KEYPAD)];
+                if ([label isEqualToString:@"A"] && ![codes isEqualToArray:@[@(SC_NGAGE_A)]]) {
+                    copy[@"codes"] = @[@(SC_NGAGE_A)];
+                } else if ([label isEqualToString:@"B"] && ![codes isEqualToArray:@[@(SC_NGAGE_B)]) {
+                    copy[@"codes"] = @[@(SC_NGAGE_B)];
                 }
             }
             [_elements addObject:copy];
@@ -422,8 +415,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
                 CGFloat aX = W - margin - aD;
                 CGFloat midY = dpadTop + dpad / 2.0;
                 CGFloat left = aX - aD - 6;
-                [self addControl:@[@(SC_NGAGE_A), @(SC_NGAGE_A_KEYPAD), @(SC_NGAGE_A_FIRE)] label:@"A" rect:CGRectMake(left, midY - aD - 5, aD, aD)];
-                [self addControl:@[@(SC_NGAGE_B), @(SC_NGAGE_B_KEYPAD)] label:@"B" rect:CGRectMake(left, midY + 5, aD, aD)];
+                [self addControl:@[@(SC_NGAGE_A)] label:@"A" rect:CGRectMake(left, midY - aD - 5, aD, aD)];
+                [self addControl:@[@(SC_NGAGE_B)] label:@"B" rect:CGRectMake(left, midY + 5, aD, aD)];
                 [self addControl:@[@(SC_POUND)] label:@"#" rect:CGRectMake(aX, midY - aD - 5, aD, aD)];
                 [self addControl:@[@(SC_STAR)] label:@"*" rect:CGRectMake(aX, midY + 5, aD, aD)];
             }
@@ -445,8 +438,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             CGFloat aD = MIN(70 * s, W * 0.5 - margin);
             CGFloat aX = W - margin - aD;
             CGFloat left = aX - aD - 6;
-            [self addControl:@[@(SC_NGAGE_A), @(SC_NGAGE_A_KEYPAD), @(SC_NGAGE_A_FIRE)] label:@"A" rect:CGRectMake(left, bottom - 2 * aD - 6, aD, aD)];
-            [self addControl:@[@(SC_NGAGE_B), @(SC_NGAGE_B_KEYPAD)] label:@"B" rect:CGRectMake(left, bottom - aD, aD, aD)];
+            [self addControl:@[@(SC_NGAGE_A)] label:@"A" rect:CGRectMake(left, bottom - 2 * aD - 6, aD, aD)];
+            [self addControl:@[@(SC_NGAGE_B)] label:@"B" rect:CGRectMake(left, bottom - aD, aD, aD)];
             [self addControl:@[@(SC_POUND)] label:@"#" rect:CGRectMake(aX, bottom - 2 * aD - 6, aD, aD)];
             [self addControl:@[@(SC_STAR)]  label:@"*" rect:CGRectMake(aX, bottom - aD, aD, aD)];
 
@@ -844,8 +837,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         @{ @"label": @"D-pad", @"codes": @[], @"dpad": @(YES) },
         @{ @"label": @"Joystick", @"codes": @[], @"joystick": @(YES) },
         @{ @"label": @"FIRE", @"codes": @[@(SC_FIRE)], @"dpad": @(NO) },
-        @{ @"label": @"A", @"codes": @[@(SC_NGAGE_A), @(SC_NGAGE_A_KEYPAD), @(SC_NGAGE_A_FIRE)], @"dpad": @(NO) },
-        @{ @"label": @"B", @"codes": @[@(SC_NGAGE_B), @(SC_NGAGE_B_KEYPAD)], @"dpad": @(NO) },
+        @{ @"label": @"A", @"codes": @[@(SC_NGAGE_A)], @"dpad": @(NO) },
+        @{ @"label": @"B", @"codes": @[@(SC_NGAGE_B)], @"dpad": @(NO) },
         @{ @"label": @"L", @"codes": @[@(SC_SOFT_LEFT)], @"dpad": @(NO) },
         @{ @"label": @"R", @"codes": @[@(SC_SOFT_RIGHT)], @"dpad": @(NO) },
         @{ @"label": @"↑", @"codes": @[@(SC_UP)], @"dpad": @(NO) },

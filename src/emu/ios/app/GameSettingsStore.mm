@@ -47,6 +47,19 @@
 
 @implementation GameSettingsStore
 
++ (NSDictionary<NSString *, NSArray<NSDictionary *> *> *)validLayoutMap:(id)value {
+    if (![value isKindOfClass:[NSDictionary class]]) {
+        return nil;
+    }
+    NSMutableDictionary<NSString *, NSArray<NSDictionary *> *> *result = [NSMutableDictionary dictionary];
+    [(NSDictionary *)value enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        if ([key isKindOfClass:[NSString class]] && [obj isKindOfClass:[NSArray class]]) {
+            result[key] = obj;
+        }
+    }];
+    return result.count ? result : nil;
+}
+
 + (NSString *)settingsDir {
     NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
     NSString *dir = [docs stringByAppendingPathComponent:@"game_settings"];
@@ -137,6 +150,19 @@
     if ([dict[@"customLayoutLandscape"] isKindOfClass:[NSArray class]]) {
         s.customLayoutLandscape = dict[@"customLayoutLandscape"];
     }
+    s.customLayoutsPortraitByKeyLayout = [self validLayoutMap:dict[@"customLayoutsPortraitByKeyLayout"]];
+    s.customLayoutsLandscapeByKeyLayout = [self validLayoutMap:dict[@"customLayoutsLandscapeByKeyLayout"]];
+
+    // One legacy layout used to be shared by every Key Layout in the same orientation.
+    // Preserve it under the layout that was selected when it was saved; new saves only use the
+    // keyed maps, so switching layouts no longer reuses it.
+    NSString *currentLayoutKey = [NSString stringWithFormat:@"%ld", (long)s.keyLayout];
+    if (s.customLayoutPortrait.count && !s.customLayoutsPortraitByKeyLayout[currentLayoutKey]) {
+        s.customLayoutsPortraitByKeyLayout = @{ currentLayoutKey: s.customLayoutPortrait };
+    }
+    if (s.customLayoutLandscape.count && !s.customLayoutsLandscapeByKeyLayout[currentLayoutKey]) {
+        s.customLayoutsLandscapeByKeyLayout = @{ currentLayoutKey: s.customLayoutLandscape };
+    }
     return s;
 }
 
@@ -159,8 +185,16 @@
         @"filterShader": (settings.filterShader ?: @""),
         @"visualEnhancement": @(settings.visualEnhancement)
     } mutableCopy];
-    if (settings.customLayoutPortrait) dict[@"customLayoutPortrait"] = settings.customLayoutPortrait;
-    if (settings.customLayoutLandscape) dict[@"customLayoutLandscape"] = settings.customLayoutLandscape;
+    if (settings.customLayoutsPortraitByKeyLayout.count) {
+        dict[@"customLayoutsPortraitByKeyLayout"] = settings.customLayoutsPortraitByKeyLayout;
+    } else if (settings.customLayoutPortrait) {
+        dict[@"customLayoutPortrait"] = settings.customLayoutPortrait;
+    }
+    if (settings.customLayoutsLandscapeByKeyLayout.count) {
+        dict[@"customLayoutsLandscapeByKeyLayout"] = settings.customLayoutsLandscapeByKeyLayout;
+    } else if (settings.customLayoutLandscape) {
+        dict[@"customLayoutLandscape"] = settings.customLayoutLandscape;
+    }
     NSData *data = [NSJSONSerialization dataWithJSONObject:dict options:NSJSONWritingPrettyPrinted error:nil];
     [data writeToFile:[self pathForUid:uid] atomically:YES];
 }

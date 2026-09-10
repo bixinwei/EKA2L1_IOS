@@ -69,7 +69,9 @@
     // (layout 0) falls back to a sensible D-pad default.
     NSArray *seed = [GameControlsView customLayoutForBuiltinLayout:s.keyLayout];
     _defaultSeed = seed.count ? seed : [GameControlsView defaultCustomLayout];
-    NSArray *existing = _portrait ? s.customLayoutPortrait : s.customLayoutLandscape;
+    NSString *layoutKey = [NSString stringWithFormat:@"%ld", (long)s.keyLayout];
+    NSDictionary *layouts = _portrait ? s.customLayoutsPortraitByKeyLayout : s.customLayoutsLandscapeByKeyLayout;
+    NSArray *existing = layouts[layoutKey];
     _controls.customLayout = existing.count ? existing : _defaultSeed;
     _controls.editing = YES;
     [_preview addSubview:_controls];
@@ -169,8 +171,16 @@
 - (void)onSave {
     EKAGameSettings *s = [GameSettingsStore settingsForUid:_uid];
     NSArray *layout = [_controls currentLayout];
-    if (_portrait) s.customLayoutPortrait = layout;
-    else           s.customLayoutLandscape = layout;
+    NSString *layoutKey = [NSString stringWithFormat:@"%ld", (long)s.keyLayout];
+    if (_portrait) {
+        NSMutableDictionary *layouts = [s.customLayoutsPortraitByKeyLayout mutableCopy] ?: [NSMutableDictionary dictionary];
+        layouts[layoutKey] = layout;
+        s.customLayoutsPortraitByKeyLayout = layouts;
+    } else {
+        NSMutableDictionary *layouts = [s.customLayoutsLandscapeByKeyLayout mutableCopy] ?: [NSMutableDictionary dictionary];
+        layouts[layoutKey] = layout;
+        s.customLayoutsLandscapeByKeyLayout = layouts;
+    }
     [GameSettingsStore saveSettings:s forUid:_uid];
     if (_onChange) _onChange();
     [self.navigationController popViewControllerAnimated:YES];

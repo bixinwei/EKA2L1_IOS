@@ -64,6 +64,11 @@ typedef NS_ENUM(NSInteger, EKAScreenGravity) {
 // Custom touch layouts (arrays of element dicts, see GameControlsView). nil = use keyLayout.
 @property (nonatomic, copy, nullable) NSArray<NSDictionary *> *customLayoutPortrait;
 @property (nonatomic, copy, nullable) NSArray<NSDictionary *> *customLayoutLandscape;
+// Custom layouts keyed by the selected built-in Key Layout number ("1" ... "6") and
+// orientation. These supersede the two legacy properties above, which are retained only so
+// existing per-game settings can be migrated without discarding a user's edited layout.
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, NSArray<NSDictionary *> *> *customLayoutsPortraitByKeyLayout;
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, NSArray<NSDictionary *> *> *customLayoutsLandscapeByKeyLayout;
 @end
 
 @interface GameSettingsStore : NSObject
