@@ -140,8 +140,6 @@ static NSString *EKAScanCodeName(int code) {
     }
 }
 
-static const NSUInteger kScanTestBatchSize = 20;
-
 // ---- Built-in -> editable custom-layout conversion ------------------------
 // Normalized element builders (cx/cy are fractions of width/height, size of min(W,H)). Used by
 // +customLayoutForBuiltinLayout: to render a built-in layout as editable custom elements.
@@ -165,6 +163,9 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         [out addObject:EKAKeyEl(codes[i], labels[i], left + (i % 3) * colStep, top + (i / 3) * rowStep, size)];
     }
 }
+
+@interface GameControlsView () <UIPickerViewDataSource, UIPickerViewDelegate>
+@end
 
 @implementation GameControlsView {
     NSMutableArray<NSDictionary *> *_controls;  // {codes:[NSNumber], label:NSString, rect:NSValue}
@@ -192,16 +193,11 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 
     UIImpactFeedbackGenerator *_haptic;  // lazily created when hapticsEnabled fires
 
-    // Full-screen scan-code batch tester shown from the on-screen A button.
+    // On-device selector for the 20 raw codes that made the game perform Action A.
     UIView *_scanCodePicker;
-    UILabel *_scanBatchStatus;
-    UIButton *_scanBatchAction;
-    UIButton *_scanBatchStop;
-    NSArray<NSNumber *> *_scanTestCodes;
-    NSUInteger _scanBatchIndex;
-    NSUInteger _scanTestGeneration;
-    NSInteger _scanHeldCode;
-    BOOL _scanBatchRunning;
+    UIPickerView *_scanCandidatePicker;
+    UILabel *_scanCandidateStatus;
+    NSArray<NSNumber *> *_scanCandidateCodes;
     CGPoint _scanPickerOrigin;
     CGPoint _scanPickerDragStart;
     BOOL _hasScanPickerOrigin;
@@ -224,7 +220,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         _elements = nil;
         _selectedIndex = -1;
         _dragIndex = -1;
-        _scanHeldCode = -1;
     }
     return self;
 }
@@ -690,133 +685,51 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [self setNeedsDisplay];
 }
 
-// ---- A button scan-code test picker ---------------------------------------
+// ---- A button: narrowed raw scan-code selector ----------------------------
 
-// Order the likely N-Gage action codes first. Potentially disruptive system keys (exit/menu,
-// power, dial and application launchers) are explicitly deferred to the final batches.
-- (NSArray<NSNumber *> *)scanTestCodeOrder {
-    if (_scanTestCodes) return _scanTestCodes;
-
-    NSMutableOrderedSet<NSNumber *> *ordered = [NSMutableOrderedSet orderedSet];
-    NSArray<NSNumber *> *likely = @[@(SC_NUM5), @(SC_FIRE), @(SC_NGAGE_A_DEVICE5),
-                                     @(SC_NGAGE_A), @(SC_NGAGE_B),
-                                     @(SC_NGAGE_A_APPLICATION), @(SC_NGAGE_B_APPLICATION),
-                                     @(SC_NGAGE_A_MEDIA), @(SC_NGAGE_B_MEDIA), @(0x8D)];
-    [ordered addObjectsFromArray:likely];
-
-    NSMutableIndexSet *dangerous = [NSMutableIndexSet indexSet];
-    // Escape/menu/power/dial plus soft, device and application launcher keys can leave a game
-    // or launch a system function. Keep them out of exploratory batches until the very end.
-    // Keep navigation/editing keys which can leave the game until the final batches.
-    [dangerous addIndex:0x01];
-    [dangerous addIndex:0x04];
-    [dangerous addIndex:0x0D];
-    [dangerous addIndex:0x94];
-    [dangerous addIndexesInRange:NSMakeRange(0xA0, 0x04)];
-    [dangerous addIndexesInRange:NSMakeRange(0xA4, 0x20)];
-    [dangerous addIndexesInRange:NSMakeRange(0xC4, 0x05)];
-    [dangerous addIndexesInRange:NSMakeRange(0xC9, 0x30)];
-
-    for (NSUInteger code = 0; code <= 0xF8; ++code) {
-        if (![dangerous containsIndex:code]) [ordered addObject:@(code)];
-    }
-    for (NSUInteger code = 0; code <= 0xF8; ++code) {
-        if ([dangerous containsIndex:code]) [ordered addObject:@(code)];
-    }
-    _scanTestCodes = ordered.array;
-    return _scanTestCodes;
+- (NSArray<NSNumber *> *)scanCandidateCodes {
+    if (_scanCandidateCodes) return _scanCandidateCodes;
+    NSMutableArray<NSNumber *> *codes = [NSMutableArray arrayWithCapacity:20];
+    for (int code = 0xDC; code <= 0xEF; ++code) [codes addObject:@(code)];
+    _scanCandidateCodes = codes;
+    return _scanCandidateCodes;
 }
 
-- (void)refreshScanBatchUI {
-    NSArray<NSNumber *> *codes = [self scanTestCodeOrder];
-    const NSUInteger start = _scanBatchIndex * kScanTestBatchSize;
-    if (start >= codes.count) {
-        _scanBatchStatus.text = @"全部扫描码批次已测试完毕。";
-        [_scanBatchAction setTitle:@"已完成" forState:UIControlStateNormal];
-        _scanBatchAction.enabled = NO;
-        _scanBatchStop.hidden = YES;
-        return;
-    }
-
-    const NSUInteger end = MIN(start + kScanTestBatchSize, codes.count);
-    NSMutableArray<NSString *> *labels = [NSMutableArray arrayWithCapacity:end - start];
-    for (NSUInteger index = start; index < end; ++index) {
-        const int code = codes[index].intValue;
-        [labels addObject:[NSString stringWithFormat:@"%02X", code]];
-    }
-    _scanBatchStatus.text = [NSString stringWithFormat:@"第 %lu 批（%lu–%lu/%lu）\n0x%@",
-                             (unsigned long)(_scanBatchIndex + 1), (unsigned long)(start + 1),
-                             (unsigned long)end, (unsigned long)codes.count,
-                             [labels componentsJoinedByString:@"  0x"]];
-    [_scanBatchAction setTitle:_scanBatchRunning ? @"正在测试…" :
-                               (_scanBatchIndex == 0 ? @"开始测试本批" : @"继续下一批")
-                     forState:UIControlStateNormal];
-    _scanBatchAction.enabled = !_scanBatchRunning;
-    _scanBatchStop.hidden = !_scanBatchRunning;
+- (NSInteger)numberOfComponentsInPickerView:(UIPickerView *)pickerView {
+    return 1;
 }
 
-- (void)stopScanBatch {
-    ++_scanTestGeneration; // invalidates every delayed press/release in the current batch
-    if (_scanHeldCode >= 0) {
-        eka2l1::ios::bridge::key((int)_scanHeldCode, false);
-        _scanHeldCode = -1;
-    }
-    _scanBatchRunning = NO;
-    [self refreshScanBatchUI];
+- (NSInteger)pickerView:(UIPickerView *)pickerView numberOfRowsInComponent:(NSInteger)component {
+    return [self scanCandidateCodes].count;
 }
 
-- (void)runNextScanBatch {
-    if (_scanBatchRunning) return;
-    NSArray<NSNumber *> *codes = [self scanTestCodeOrder];
-    const NSUInteger start = _scanBatchIndex * kScanTestBatchSize;
-    if (start >= codes.count) {
-        [self refreshScanBatchUI];
-        return;
-    }
+- (NSString *)pickerView:(UIPickerView *)pickerView titleForRow:(NSInteger)row forComponent:(NSInteger)component {
+    const int code = [self scanCandidateCodes][row].intValue;
+    return [NSString stringWithFormat:@"0x%02X  ·  %@", code, EKAScanCodeName(code)];
+}
 
-    _scanBatchRunning = YES;
-    const NSUInteger generation = ++_scanTestGeneration;
-    const NSUInteger end = MIN(start + kScanTestBatchSize, codes.count);
-    [self refreshScanBatchUI];
+- (void)pickerView:(UIPickerView *)pickerView didSelectRow:(NSInteger)row inComponent:(NSInteger)component {
+    const int code = [self scanCandidateCodes][row].intValue;
+    _scanCandidateStatus.text = [NSString stringWithFormat:@"当前选择 0x%02X · %@", code, EKAScanCodeName(code)];
+}
 
-    for (NSUInteger index = start; index < end; ++index) {
-        const NSTimeInterval delay = (index - start) * 0.45;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            if (generation != self->_scanTestGeneration) return;
-            const int code = codes[index].intValue;
-            self->_scanHeldCode = code;
-            self->_scanBatchStatus.text = [NSString stringWithFormat:@"第 %lu 批，正在测试 %lu/%lu\n0x%02X   %@",
-                                           (unsigned long)(self->_scanBatchIndex + 1),
-                                           (unsigned long)(index - start + 1),
-                                           (unsigned long)(end - start), code, EKAScanCodeName(code)];
-            eka2l1::ios::bridge::key(code, true);
-            [self fireHaptic];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.10 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                if (generation != self->_scanTestGeneration) return;
-                eka2l1::ios::bridge::key(code, false);
-                if (self->_scanHeldCode == code) self->_scanHeldCode = -1;
-            });
-        });
-    }
-    const NSTimeInterval finishDelay = (end - start) * 0.45 + 0.02;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(finishDelay * NSEC_PER_SEC)),
+- (void)sendSelectedScanCandidate {
+    const NSInteger row = [_scanCandidatePicker selectedRowInComponent:0];
+    const int code = [self scanCandidateCodes][MAX(0, row)].intValue;
+    _scanCandidateStatus.text = [NSString stringWithFormat:@"已发送 0x%02X · %@", code, EKAScanCodeName(code)];
+    eka2l1::ios::bridge::key(code, true);
+    [self fireHaptic];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.10 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        if (generation != self->_scanTestGeneration) return;
-        self->_scanBatchRunning = NO;
-        ++self->_scanBatchIndex;
-        [self refreshScanBatchUI];
+        eka2l1::ios::bridge::key(code, false);
     });
 }
 
 - (void)dismissScanCodePicker {
-    [self stopScanBatch];
     [_scanCodePicker removeFromSuperview];
     _scanCodePicker = nil;
-    _scanBatchStatus = nil;
-    _scanBatchAction = nil;
-    _scanBatchStop = nil;
+    _scanCandidatePicker = nil;
+    _scanCandidateStatus = nil;
 }
 
 - (void)handleScanPickerPan:(UIPanGestureRecognizer *)gesture {
@@ -842,10 +755,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         return;
     }
     [self releaseAllHeld];
-    // Resume an unfinished batch after closing the panel. Only restart after every code was tried.
-    if (_scanBatchIndex * kScanTestBatchSize >= [self scanTestCodeOrder].count) {
-        _scanBatchIndex = 0;
-    }
 
     UIView *picker = [[UIView alloc] initWithFrame:self.bounds];
     picker.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -858,7 +767,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [picker addSubview:backdrop];
 
     const CGFloat panelW = MIN(400.0, MAX(280.0, self.bounds.size.width - 28.0));
-    const CGFloat panelH = MIN(310.0, MAX(250.0, self.bounds.size.height - 40.0));
+    const CGFloat panelH = MIN(360.0, MAX(280.0, self.bounds.size.height - 40.0));
     const CGFloat maxX = MAX(0.0, self.bounds.size.width - panelW);
     const CGFloat maxY = MAX(0.0, self.bounds.size.height - panelH);
     CGPoint panelOrigin = _hasScanPickerOrigin ? _scanPickerOrigin :
@@ -888,7 +797,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [panel addSubview:title];
 
     UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 32, panelW - 32, 18)];
-    hint.text = @"拖动标题可移动；每批依次发送 20 个码，命中后立即停止";
+    hint.text = @"拖动标题可移动；选择一个候选码后点“发送测试码”";
     hint.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
     hint.font = [UIFont systemFontOfSize:11];
     [panel addSubview:hint];
@@ -901,33 +810,32 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [close addTarget:self action:@selector(dismissScanCodePicker) forControlEvents:UIControlEventTouchUpInside];
     [panel addSubview:close];
 
-    _scanBatchStatus = [[UILabel alloc] initWithFrame:CGRectMake(18, 65, panelW - 36, 64)];
-    _scanBatchStatus.numberOfLines = 3;
-    _scanBatchStatus.textAlignment = NSTextAlignmentCenter;
-    _scanBatchStatus.textColor = [UIColor colorWithWhite:0.92 alpha:1.0];
-    _scanBatchStatus.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
-    [panel addSubview:_scanBatchStatus];
+    _scanCandidatePicker = [[UIPickerView alloc] initWithFrame:CGRectMake(12, 58, panelW - 24, panelH - 158)];
+    _scanCandidatePicker.dataSource = self;
+    _scanCandidatePicker.delegate = self;
+    _scanCandidatePicker.backgroundColor = [UIColor colorWithWhite:0.14 alpha:1.0];
+    _scanCandidatePicker.layer.cornerRadius = 8.0;
+    [panel addSubview:_scanCandidatePicker];
 
-    _scanBatchAction = [UIButton buttonWithType:UIButtonTypeSystem];
-    _scanBatchAction.frame = CGRectMake(18, panelH - 112, panelW - 36, 42);
-    _scanBatchAction.backgroundColor = [UIColor colorWithRed:0.10 green:0.48 blue:0.88 alpha:1.0];
-    _scanBatchAction.layer.cornerRadius = 9.0;
-    _scanBatchAction.titleLabel.font = [UIFont boldSystemFontOfSize:16];
-    [_scanBatchAction setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [_scanBatchAction addTarget:self action:@selector(runNextScanBatch) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:_scanBatchAction];
+    _scanCandidateStatus = [[UILabel alloc] initWithFrame:CGRectMake(18, panelH - 96, panelW - 36, 20)];
+    _scanCandidateStatus.text = @"当前选择 0xDC · Application 13";
+    _scanCandidateStatus.textAlignment = NSTextAlignmentCenter;
+    _scanCandidateStatus.textColor = [UIColor colorWithWhite:0.84 alpha:1.0];
+    _scanCandidateStatus.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+    [panel addSubview:_scanCandidateStatus];
 
-    _scanBatchStop = [UIButton buttonWithType:UIButtonTypeSystem];
-    _scanBatchStop.frame = CGRectMake(18, panelH - 60, panelW - 36, 34);
-    _scanBatchStop.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-    [_scanBatchStop setTitle:@"停止本批（命中后立即点此处）" forState:UIControlStateNormal];
-    [_scanBatchStop setTitleColor:[UIColor colorWithRed:1.0 green:0.55 blue:0.34 alpha:1.0] forState:UIControlStateNormal];
-    [_scanBatchStop addTarget:self action:@selector(stopScanBatch) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:_scanBatchStop];
+    UIButton *test = [UIButton buttonWithType:UIButtonTypeSystem];
+    test.frame = CGRectMake(18, panelH - 64, panelW - 36, 42);
+    test.backgroundColor = [UIColor colorWithRed:0.10 green:0.48 blue:0.88 alpha:1.0];
+    test.layer.cornerRadius = 9.0;
+    test.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+    [test setTitle:@"发送测试码" forState:UIControlStateNormal];
+    [test setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [test addTarget:self action:@selector(sendSelectedScanCandidate) forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:test];
 
     _scanCodePicker = picker;
     [self addSubview:picker];
-    [self refreshScanBatchUI];
 }
 
 // ---- Touch handling -------------------------------------------------------
