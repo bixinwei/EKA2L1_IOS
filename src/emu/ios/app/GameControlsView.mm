@@ -839,17 +839,15 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     });
 }
 
-// C fired in the final automatic batch and B in batch two. Expose only the relevant batch, so
-// each candidate can be tested deliberately without replaying earlier scan codes.
+// C was in the final automatic batch; B was in batch 12. Expose only the reported batch so each
+// candidate can be tested deliberately without replaying earlier scan codes.
 - (NSArray<NSNumber *> *)scanCandidateCodesForCurrentTarget {
     if (_scanCandidateCodes) return _scanCandidateCodes;
     NSArray<NSNumber *> *allCodes = [self scanProbeCodeOrder];
     const NSUInteger batchSize = 20;
-    NSUInteger start = [_scanProbeTarget isEqualToString:@"B"] ? batchSize : ((allCodes.count - 1) / batchSize) * batchSize;
-    _scanCandidateCodes = [allCodes subarrayWithRange:NSMakeRange(start, allCodes.count - start)];
-    if ([_scanProbeTarget isEqualToString:@"B"] && _scanCandidateCodes.count > batchSize) {
-        _scanCandidateCodes = [_scanCandidateCodes subarrayWithRange:NSMakeRange(0, batchSize)];
-    }
+    NSUInteger start = [_scanProbeTarget isEqualToString:@"B"] ? (11 * batchSize) : ((allCodes.count - 1) / batchSize) * batchSize;
+    NSUInteger length = MIN(batchSize, allCodes.count - start);
+    _scanCandidateCodes = [allCodes subarrayWithRange:NSMakeRange(start, length)];
     return _scanCandidateCodes;
 }
 
@@ -867,7 +865,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     _scanProbeStatus.text = [NSString stringWithFormat:@"当前选择：0x%02lX。点击“发送测试码”验证。", (unsigned long)[self scanCandidateCodesForCurrentTarget][row].unsignedIntegerValue];
 }
 
-- (void)sendSelectedCCandidate {
+- (void)sendSelectedCandidate {
     NSInteger row = [_scanCandidatePicker selectedRowInComponent:0];
     if (row < 0) row = 0;
     int code = [self scanCandidateCodesForCurrentTarget][row].intValue;
@@ -907,7 +905,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [_scanProbe addSubview:close];
 
     UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(14, 42, width - 28, 22)];
-    hint.text = [target isEqualToString:@"B"] ? @"B 在第二批触发；逐个选择并发送即可定位。" : @"逐个选择并发送即可定位。";
+    hint.text = [target isEqualToString:@"B"] ? @"B 在第 12 批触发；逐个选择并发送即可定位。" : @"逐个选择并发送即可定位。";
     hint.textColor = [UIColor colorWithWhite:0.76 alpha:1];
     hint.font = [UIFont systemFontOfSize:11];
     [_scanProbe addSubview:hint];
@@ -929,7 +927,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     test.layer.cornerRadius = 8;
     [test setTitle:@"发送测试码" forState:UIControlStateNormal];
     [test setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    [test addTarget:self action:@selector(sendSelectedCCandidate) forControlEvents:UIControlEventTouchUpInside];
+    [test addTarget:self action:@selector(sendSelectedCandidate) forControlEvents:UIControlEventTouchUpInside];
     [_scanProbe addSubview:test];
     [self addSubview:_scanProbe];
 }
