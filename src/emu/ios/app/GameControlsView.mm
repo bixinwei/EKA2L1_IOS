@@ -249,7 +249,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
                 NSArray *codes = copy[@"codes"];
                 if ([label isEqualToString:@"A"] && ![codes isEqualToArray:@[@(SC_NGAGE_A)]]) {
                     copy[@"codes"] = @[@(SC_NGAGE_A)];
-                } else if ([label isEqualToString:@"B"] && ![codes isEqualToArray:@[@(SC_NGAGE_B)]) {
+                } else if ([label isEqualToString:@"B"] && ![codes isEqualToArray:@[@(SC_NGAGE_B)]]) {
                     copy[@"codes"] = @[@(SC_NGAGE_B)];
                 }
             }
