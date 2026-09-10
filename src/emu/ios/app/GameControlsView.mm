@@ -26,7 +26,8 @@ enum {
     SC_NUM5 = '5', SC_NUM6 = '6', SC_NUM7 = '7', SC_NUM8 = '8', SC_NUM9 = '9',
     SC_STAR = '*', SC_POUND = 0x7F,
     SC_UP = 0x10, SC_DOWN = 0x11, SC_LEFT = 0x0E, SC_RIGHT = 0x0F,
-    SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5
+    SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
+    SC_NGAGE_A = 0xAE, SC_NGAGE_B = 0xAF
 };
 
 static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
@@ -396,8 +397,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
                 CGFloat aX = W - margin - aD;
                 CGFloat midY = dpadTop + dpad / 2.0;
                 CGFloat left = aX - aD - 6;
-                [self addControl:@[@(SC_NUM5)] label:@"A" rect:CGRectMake(left, midY - aD - 5, aD, aD)];
-                [self addControl:@[@(SC_NUM0)] label:@"B" rect:CGRectMake(left, midY + 5, aD, aD)];
+                [self addControl:@[@(SC_NGAGE_A)] label:@"A" rect:CGRectMake(left, midY - aD - 5, aD, aD)];
+                [self addControl:@[@(SC_NGAGE_B)] label:@"B" rect:CGRectMake(left, midY + 5, aD, aD)];
                 [self addControl:@[@(SC_POUND)] label:@"#" rect:CGRectMake(aX, midY - aD - 5, aD, aD)];
                 [self addControl:@[@(SC_STAR)] label:@"*" rect:CGRectMake(aX, midY + 5, aD, aD)];
             }
@@ -419,8 +420,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             CGFloat aD = MIN(70 * s, W * 0.5 - margin);
             CGFloat aX = W - margin - aD;
             CGFloat left = aX - aD - 6;
-            [self addControl:@[@(SC_NUM5)] label:@"A" rect:CGRectMake(left, bottom - 2 * aD - 6, aD, aD)];
-            [self addControl:@[@(SC_NUM0)] label:@"B" rect:CGRectMake(left, bottom - aD, aD, aD)];
+            [self addControl:@[@(SC_NGAGE_A)] label:@"A" rect:CGRectMake(left, bottom - 2 * aD - 6, aD, aD)];
+            [self addControl:@[@(SC_NGAGE_B)] label:@"B" rect:CGRectMake(left, bottom - aD, aD, aD)];
             [self addControl:@[@(SC_POUND)] label:@"#" rect:CGRectMake(aX, bottom - 2 * aD - 6, aD, aD)];
             [self addControl:@[@(SC_STAR)]  label:@"*" rect:CGRectMake(aX, bottom - aD, aD, aD)];
 
@@ -775,8 +776,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [out addObject:EKAKeyEl(SC_SOFT_RIGHT, @"R", 0.55, 0.54, 0.12)];
             [out addObject:EKAKeyEl(SC_POUND, @"#", 0.88, 0.70, 0.13)];
             [out addObject:EKAKeyEl(SC_STAR, @"*", 0.88, 0.86, 0.13)];
-            [out addObject:EKAKeyEl(SC_NUM5, @"A", 0.72, 0.70, 0.13)];
-            [out addObject:EKAKeyEl(SC_NUM0, @"B", 0.72, 0.86, 0.13)];
+            [out addObject:EKAKeyEl(SC_NGAGE_A, @"A", 0.72, 0.70, 0.13)];
+            [out addObject:EKAKeyEl(SC_NGAGE_B, @"B", 0.72, 0.86, 0.13)];
             break;
         case 6:   // Joystick bottom-left, FIRE + #/* bottom-right, L/R above
             [out addObject:EKAJoyEl(0.22, 0.76, 0.40)];
@@ -784,8 +785,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [out addObject:EKAKeyEl(SC_SOFT_RIGHT, @"R", 0.88, 0.50, 0.12)];
             [out addObject:EKAKeyEl(SC_POUND, @"#", 0.88, 0.68, 0.13)];
             [out addObject:EKAKeyEl(SC_STAR, @"*", 0.88, 0.85, 0.13)];
-            [out addObject:EKAKeyEl(SC_NUM5, @"A", 0.72, 0.68, 0.13)];
-            [out addObject:EKAKeyEl(SC_NUM0, @"B", 0.72, 0.85, 0.13)];
+            [out addObject:EKAKeyEl(SC_NGAGE_A, @"A", 0.72, 0.68, 0.13)];
+            [out addObject:EKAKeyEl(SC_NGAGE_B, @"B", 0.72, 0.85, 0.13)];
             [out addObject:EKAKeyEl(SC_FIRE, @"FIRE", 0.64, 0.80, 0.16)];
             break;
         case 2:   // Centred numeric keypad + softkeys, no D-pad
@@ -818,8 +819,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         @{ @"label": @"D-pad", @"codes": @[], @"dpad": @(YES) },
         @{ @"label": @"Joystick", @"codes": @[], @"joystick": @(YES) },
         @{ @"label": @"FIRE", @"codes": @[@(SC_FIRE)], @"dpad": @(NO) },
-        @{ @"label": @"A", @"codes": @[@(SC_NUM5)], @"dpad": @(NO) },
-        @{ @"label": @"B", @"codes": @[@(SC_NUM0)], @"dpad": @(NO) },
+        @{ @"label": @"A", @"codes": @[@(SC_NGAGE_A)], @"dpad": @(NO) },
+        @{ @"label": @"B", @"codes": @[@(SC_NGAGE_B)], @"dpad": @(NO) },
         @{ @"label": @"L", @"codes": @[@(SC_SOFT_LEFT)], @"dpad": @(NO) },
         @{ @"label": @"R", @"codes": @[@(SC_SOFT_RIGHT)], @"dpad": @(NO) },
         @{ @"label": @"↑", @"codes": @[@(SC_UP)], @"dpad": @(NO) },
