@@ -33,8 +33,8 @@ NSString *EKAActionName(EKAAction action) {
         case EKAActionSoftLeft:  return @"Left Softkey (L)";
         case EKAActionSoftRight: return @"Right Softkey (R)";
         case EKAActionMenu:      return @"Open Emulator Menu";
-        case EKAActionAKey:      return @"Phone #";
-        case EKAActionBKey:      return @"Phone *";
+        case EKAActionAKey:      return @"N-Gage A";
+        case EKAActionBKey:      return @"N-Gage B";
         case EKAActionNum0:      return @"Phone 0";
         case EKAActionNum1:      return @"Phone 1";
         case EKAActionNum2:      return @"Phone 2";
@@ -147,13 +147,11 @@ static NSDictionary *Entry(NSArray *kb, NSArray *ctrl) {
     m[@(EKAActionSoftLeft).stringValue]  = Entry(@[@[KC(GCKeyCodeKeyF)]], @[@[@"L1"]]);
     m[@(EKAActionSoftRight).stringValue] = Entry(@[@[KC(GCKeyCodeKeyJ)]], @[@[@"R1"]]);
     m[@(EKAActionMenu).stringValue]      = Entry(@[@[KC(GCKeyCodeEscape)]], @[@[@"MENU"]]);
-    // N-Gage helper #: keyboard Space + # (Shift+3), controller X (keeps Fire on A).
+    // Dedicated N-Gage A/B. The action identifiers are retained so existing profiles remain
+    // editable, while their output now uses the verified N-Gage scancodes.
     m[@(EKAActionAKey).stringValue]      = Entry(@[@[KC(GCKeyCodeSpacebar)], @[KC(GCKeyCodeLeftShift), KC(GCKeyCodeThree)]], @[@[@"X"]]);
-    // N-Gage helper *: same scancode as Android's keypad * overlay, keyboard keypad-* + X,
-    // controller B.
     m[@(EKAActionBKey).stringValue]      = Entry(@[@[KC(GCKeyCodeKeypadAsterisk)], @[KC(GCKeyCodeKeyX)]], @[@[@"B"]]);
-    // N-Gage dedicated A/B actions are represented by keypad 5/0. Keep those physical
-    // keyboard keys available by default; users can still override them per game.
+    // Keep physical keypad 5/0 available as ordinary phone keys; users can still override them.
     m[@(EKAActionNum0).stringValue]      = Entry(@[@[KC(GCKeyCodeZero)]], @[]);
     m[@(EKAActionNum1).stringValue]      = Entry(@[], @[]);
     m[@(EKAActionNum2).stringValue]      = Entry(@[], @[]);

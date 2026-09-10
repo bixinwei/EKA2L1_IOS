@@ -27,12 +27,8 @@ enum {
     SC_STAR = '*', SC_POUND = 0x7F,
     SC_UP = 0x10, SC_DOWN = 0x11, SC_LEFT = 0x0E, SC_RIGHT = 0x0F,
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
-    // Dedicated N-Gage Device A/B scan codes.
-    SC_NGAGE_A = 0xAE, SC_NGAGE_B = 0xAF,
-    // Candidates used only by the temporary on-device compatibility probe below.
-    SC_NGAGE_A_DEVICE5 = 0xA9,
-    SC_NGAGE_A_APPLICATION = 0xB6, SC_NGAGE_B_APPLICATION = 0xB7,
-    SC_NGAGE_A_MEDIA = 0x9C, SC_NGAGE_B_MEDIA = 0x9D
+    // Verified against the installed N-Gage game: Application 1B / 1C.
+    SC_NGAGE_A = 0xE4, SC_NGAGE_B = 0xE5
 };
 
 static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
@@ -56,88 +52,8 @@ static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
     return SC_DOWN;
 }
 
-// Send each historical candidate for one test cycle. This lets a real N-Gage title reveal
-// which hardware event it consumes; the result will be narrowed back to that single code.
 static NSArray<NSNumber *> *EKANgageCandidateCodes(int code) {
-    if (code == SC_NGAGE_A) {
-        return @[@(SC_NGAGE_A), @(SC_NGAGE_A_DEVICE5), @(SC_NUM5),
-                 @(SC_NGAGE_A_APPLICATION), @(SC_NGAGE_A_MEDIA)];
-    }
-    if (code == SC_NGAGE_B) {
-        return @[@(SC_NGAGE_B), @(SC_NUM0),
-                 @(SC_NGAGE_B_APPLICATION), @(SC_NGAGE_B_MEDIA)];
-    }
     return @[@(code)];
-}
-
-// Human-readable names for the full Symbian standard scan-code space. Values that Symbian
-// deliberately leaves unassigned are still selectable: a game can use a raw, device-specific
-// code outside the documented set, and this picker is specifically for finding such a code.
-static NSString *EKAScanCodeName(int code) {
-    if (code >= '0' && code <= '9') return [NSString stringWithFormat:@"Number %c", code];
-    if (code >= 0xA4 && code <= 0xB3) return [NSString stringWithFormat:@"Device %X", code - 0xA4];
-    if (code >= 0xB4 && code <= 0xC3) return [NSString stringWithFormat:@"Application %X", code - 0xB4];
-    if (code >= 0xC9 && code <= 0xD8) return [NSString stringWithFormat:@"Device %X", code - 0xB9];
-    if (code >= 0xD9 && code <= 0xE8) return [NSString stringWithFormat:@"Application %X", code - 0xC9];
-    if (code >= 0xE9 && code <= 0xF0) return [NSString stringWithFormat:@"Device %X", code - 0xC9];
-    if (code >= 0xF1 && code <= 0xF8) return [NSString stringWithFormat:@"Application %X", code - 0xD1];
-    switch (code) {
-        case 0x00: return @"Null";
-        case 0x01: return @"Backspace / Clear";
-        case 0x02: return @"Tab";
-        case 0x03: return @"Enter";
-        case 0x04: return @"Escape";
-        case 0x05: return @"Space";
-        case 0x06: return @"Print Screen";
-        case 0x07: return @"Pause";
-        case 0x08: return @"Home";
-        case 0x09: return @"End";
-        case 0x0A: return @"Page Up";
-        case 0x0B: return @"Page Down";
-        case 0x0C: return @"Insert";
-        case 0x0D: return @"Delete";
-        case 0x0E: return @"Left";
-        case 0x0F: return @"Right";
-        case 0x10: return @"Up";
-        case 0x11: return @"Down";
-        case 0x12: return @"Left Shift";
-        case 0x13: return @"Right Shift";
-        case 0x14: return @"Left Alt";
-        case 0x15: return @"Right Alt";
-        case 0x16: return @"Left Ctrl";
-        case 0x17: return @"Right Ctrl";
-        case 0x18: return @"Left Fn";
-        case 0x19: return @"Right Fn";
-        case 0x1A: return @"Caps Lock";
-        case 0x1B: return @"Num Lock";
-        case 0x1C: return @"Scroll Lock";
-        case '*': return @"Asterisk";
-        case 0x7F: return @"Hash";
-        case 0x94: return @"Menu";
-        case 0x95: return @"Backlight On";
-        case 0x96: return @"Backlight Off";
-        case 0x97: return @"Backlight Toggle";
-        case 0x98: return @"Contrast Up";
-        case 0x99: return @"Contrast Down";
-        case 0x9A: return @"Slider Down";
-        case 0x9B: return @"Slider Up";
-        case 0x9C: return @"Dictaphone Play";
-        case 0x9D: return @"Dictaphone Stop";
-        case 0x9E: return @"Dictaphone Record";
-        case 0x9F: return @"Help";
-        case 0xA0: return @"Power Off";
-        case 0xA1: return @"Dial";
-        case 0xA2: return @"Volume Up";
-        case 0xA3: return @"Volume Down";
-        case 0xC4: return @"Yes";
-        case 0xC5: return @"No";
-        case 0xC6: return @"Brightness Up";
-        case 0xC7: return @"Brightness Down";
-        case 0xC8: return @"Keyboard Extend";
-        default:
-            if (code >= 0x60 && code <= 0x77) return [NSString stringWithFormat:@"F%d", code - 0x60 + 1];
-            return @"Reserved / raw";
-    }
 }
 
 // ---- Built-in -> editable custom-layout conversion ------------------------
@@ -163,9 +79,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         [out addObject:EKAKeyEl(codes[i], labels[i], left + (i % 3) * colStep, top + (i / 3) * rowStep, size)];
     }
 }
-
-@interface GameControlsView () <UIPickerViewDataSource, UIPickerViewDelegate>
-@end
 
 @implementation GameControlsView {
     NSMutableArray<NSDictionary *> *_controls;  // {codes:[NSNumber], label:NSString, rect:NSValue}
@@ -193,14 +106,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 
     UIImpactFeedbackGenerator *_haptic;  // lazily created when hapticsEnabled fires
 
-    // On-device selector for the 20 raw codes that made the game perform Action A.
-    UIView *_scanCodePicker;
-    UIPickerView *_scanCandidatePicker;
-    UILabel *_scanCandidateStatus;
-    NSArray<NSNumber *> *_scanCandidateCodes;
-    CGPoint _scanPickerOrigin;
-    CGPoint _scanPickerDragStart;
-    BOOL _hasScanPickerOrigin;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -340,7 +245,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         _elements = [NSMutableArray array];
         for (NSDictionary *el in customLayout) {
             NSMutableDictionary *copy = [el mutableCopy];
-            // Bring old edited layouts into the temporary A/B compatibility probe too.
+            // Migrate old edited A/B controls to the verified N-Gage scancodes.
             if ([copy[@"type"] isEqualToString:@"key"]) {
                 NSString *label = copy[@"label"];
                 NSArray *codes = copy[@"codes"];
@@ -506,7 +411,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [self addControl:@[@(SC_SOFT_LEFT)] label:@"L" rect:CGRectMake(leftX, softYa, softW, softH)];
             [self addControl:@[@(SC_SOFT_RIGHT)] label:@"R" rect:CGRectMake(rightX, softYa, softW, softH)];
 
-            // N-Gage dedicated A/B are keypad 5/0. Keep them beside the legacy #/* keys.
+            // Dedicated N-Gage A/B beside the legacy #/* keys.
             CGFloat aD = MIN(70 * s, (W - dpad) / 2.0 - margin);
             if (aD >= 34) {
                 CGFloat aX = W - margin - aD;
@@ -531,7 +436,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [self addControl:@[@(SC_SOFT_LEFT)] label:@"L" rect:CGRectMake(lX, softYj, softW, softH)];
             [self addControl:@[@(SC_SOFT_RIGHT)] label:@"R" rect:CGRectMake(W - margin - softW, softYj, softW, softH)];
 
-            // Right side: N-Gage A/B (5/0) and #/* in a compact 2x2 cluster.
+            // Right side: N-Gage A/B and #/* in a compact 2x2 cluster.
             CGFloat aD = MIN(70 * s, W * 0.5 - margin);
             CGFloat aX = W - margin - aD;
             CGFloat left = aX - aD - 6;
@@ -685,159 +590,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [self setNeedsDisplay];
 }
 
-// ---- A button: narrowed raw scan-code selector ----------------------------
-
-- (NSArray<NSNumber *> *)scanCandidateCodes {
-    if (_scanCandidateCodes) return _scanCandidateCodes;
-    NSMutableArray<NSNumber *> *codes = [NSMutableArray arrayWithCapacity:20];
-    for (int code = 0xDC; code <= 0xEF; ++code) [codes addObject:@(code)];
-    _scanCandidateCodes = codes;
-    return _scanCandidateCodes;
-}
-
-- (NSInteger)numberOfComponentsInPickerView:(UIPickerView *)pickerView {
-    return 1;
-}
-
-- (NSInteger)pickerView:(UIPickerView *)pickerView numberOfRowsInComponent:(NSInteger)component {
-    return [self scanCandidateCodes].count;
-}
-
-- (NSString *)pickerView:(UIPickerView *)pickerView titleForRow:(NSInteger)row forComponent:(NSInteger)component {
-    const int code = [self scanCandidateCodes][row].intValue;
-    return [NSString stringWithFormat:@"0x%02X  ·  %@", code, EKAScanCodeName(code)];
-}
-
-- (void)pickerView:(UIPickerView *)pickerView didSelectRow:(NSInteger)row inComponent:(NSInteger)component {
-    const int code = [self scanCandidateCodes][row].intValue;
-    _scanCandidateStatus.text = [NSString stringWithFormat:@"当前选择 0x%02X · %@", code, EKAScanCodeName(code)];
-}
-
-- (void)sendSelectedScanCandidate {
-    const NSInteger row = [_scanCandidatePicker selectedRowInComponent:0];
-    const int code = [self scanCandidateCodes][MAX(0, row)].intValue;
-    _scanCandidateStatus.text = [NSString stringWithFormat:@"已发送 0x%02X · %@", code, EKAScanCodeName(code)];
-    eka2l1::ios::bridge::key(code, true);
-    [self fireHaptic];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.10 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        eka2l1::ios::bridge::key(code, false);
-    });
-}
-
-- (void)dismissScanCodePicker {
-    [_scanCodePicker removeFromSuperview];
-    _scanCodePicker = nil;
-    _scanCandidatePicker = nil;
-    _scanCandidateStatus = nil;
-}
-
-- (void)handleScanPickerPan:(UIPanGestureRecognizer *)gesture {
-    UIView *panel = gesture.view.superview;
-    if (!panel || !_scanCodePicker) return;
-
-    if (gesture.state == UIGestureRecognizerStateBegan) {
-        _scanPickerDragStart = panel.frame.origin;
-    }
-    CGPoint translation = [gesture translationInView:_scanCodePicker];
-    const CGFloat maxX = MAX(0.0, _scanCodePicker.bounds.size.width - panel.bounds.size.width);
-    const CGFloat maxY = MAX(0.0, _scanCodePicker.bounds.size.height - panel.bounds.size.height);
-    CGPoint origin = CGPointMake(MIN(maxX, MAX(0.0, _scanPickerDragStart.x + translation.x)),
-                                 MIN(maxY, MAX(0.0, _scanPickerDragStart.y + translation.y)));
-    panel.frame = (CGRect){origin, panel.bounds.size};
-    _scanPickerOrigin = origin;
-    _hasScanPickerOrigin = YES;
-}
-
-- (void)showScanCodePicker {
-    if (_scanCodePicker) {
-        [self dismissScanCodePicker];
-        return;
-    }
-    [self releaseAllHeld];
-
-    UIView *picker = [[UIView alloc] initWithFrame:self.bounds];
-    picker.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    picker.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.45];
-
-    UIButton *backdrop = [UIButton buttonWithType:UIButtonTypeCustom];
-    backdrop.frame = picker.bounds;
-    backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [backdrop addTarget:self action:@selector(dismissScanCodePicker) forControlEvents:UIControlEventTouchUpInside];
-    [picker addSubview:backdrop];
-
-    const CGFloat panelW = MIN(400.0, MAX(280.0, self.bounds.size.width - 28.0));
-    const CGFloat panelH = MIN(360.0, MAX(280.0, self.bounds.size.height - 40.0));
-    const CGFloat maxX = MAX(0.0, self.bounds.size.width - panelW);
-    const CGFloat maxY = MAX(0.0, self.bounds.size.height - panelH);
-    CGPoint panelOrigin = _hasScanPickerOrigin ? _scanPickerOrigin :
-                          CGPointMake(maxX / 2.0, maxY / 2.0);
-    panelOrigin.x = MIN(maxX, MAX(0.0, panelOrigin.x));
-    panelOrigin.y = MIN(maxY, MAX(0.0, panelOrigin.y));
-    UIView *panel = [[UIView alloc] initWithFrame:(CGRect){panelOrigin, CGSizeMake(panelW, panelH)}];
-    panel.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin |
-                             UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
-    panel.backgroundColor = [UIColor colorWithWhite:0.10 alpha:0.97];
-    panel.layer.cornerRadius = 14.0;
-    panel.clipsToBounds = YES;
-    [picker addSubview:panel];
-
-    // A wide, non-button header keeps dragging reliable without stealing the action buttons.
-    UIView *dragHandle = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelW - 58, 58)];
-    dragHandle.userInteractionEnabled = YES;
-    [panel addSubview:dragHandle];
-    UIPanGestureRecognizer *panelPan = [[UIPanGestureRecognizer alloc] initWithTarget:self
-                                                                                  action:@selector(handleScanPickerPan:)];
-    [dragHandle addGestureRecognizer:panelPan];
-
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 10, panelW - 64, 22)];
-    title.text = @"A · 自动扫描码测试";
-    title.textColor = [UIColor whiteColor];
-    title.font = [UIFont boldSystemFontOfSize:15];
-    [panel addSubview:title];
-
-    UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 32, panelW - 32, 18)];
-    hint.text = @"拖动标题可移动；选择一个候选码后点“发送测试码”";
-    hint.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
-    hint.font = [UIFont systemFontOfSize:11];
-    [panel addSubview:hint];
-
-    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(panelW - 52, 6, 46, 34);
-    [close setTitle:@"关闭" forState:UIControlStateNormal];
-    close.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    [close setTitleColor:[UIColor colorWithRed:0.35 green:0.72 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
-    [close addTarget:self action:@selector(dismissScanCodePicker) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:close];
-
-    _scanCandidatePicker = [[UIPickerView alloc] initWithFrame:CGRectMake(12, 58, panelW - 24, panelH - 158)];
-    _scanCandidatePicker.dataSource = self;
-    _scanCandidatePicker.delegate = self;
-    _scanCandidatePicker.backgroundColor = [UIColor colorWithWhite:0.14 alpha:1.0];
-    _scanCandidatePicker.layer.cornerRadius = 8.0;
-    [panel addSubview:_scanCandidatePicker];
-
-    _scanCandidateStatus = [[UILabel alloc] initWithFrame:CGRectMake(18, panelH - 96, panelW - 36, 20)];
-    _scanCandidateStatus.text = @"当前选择 0xDC · Application 13";
-    _scanCandidateStatus.textAlignment = NSTextAlignmentCenter;
-    _scanCandidateStatus.textColor = [UIColor colorWithWhite:0.84 alpha:1.0];
-    _scanCandidateStatus.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
-    [panel addSubview:_scanCandidateStatus];
-
-    UIButton *test = [UIButton buttonWithType:UIButtonTypeSystem];
-    test.frame = CGRectMake(18, panelH - 64, panelW - 36, 42);
-    test.backgroundColor = [UIColor colorWithRed:0.10 green:0.48 blue:0.88 alpha:1.0];
-    test.layer.cornerRadius = 9.0;
-    test.titleLabel.font = [UIFont boldSystemFontOfSize:16];
-    [test setTitle:@"发送测试码" forState:UIControlStateNormal];
-    [test setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [test addTarget:self action:@selector(sendSelectedScanCandidate) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:test];
-
-    _scanCodePicker = picker;
-    [self addSubview:picker];
-}
-
 // ---- Touch handling -------------------------------------------------------
 
 - (NSInteger)controlIndexAtPoint:(CGPoint)p {
@@ -935,10 +687,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         CGPoint p = [t locationInView:self];
         NSInteger idx = [self controlIndexAtPoint:p];
         if (idx < 0) continue;
-        if ([_controls[idx][@"label"] isEqualToString:@"A"]) {
-            [self showScanCodePicker];
-            continue;
-        }
         if ([self isJoystickAt:idx]) {
             // Claim the stick for this finger unless another *live* finger already drives it
             // (one stick → first finger wins). A stale owner is reclaimed so the stick self-heals.
@@ -1009,9 +757,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     if (self.hidden) {
         return nil;
-    }
-    if (_scanCodePicker) {
-        return [_scanCodePicker hitTest:point withEvent:event];
     }
     if (self.editing) {
         return self;

@@ -29,8 +29,8 @@ enum {
     SC_UP = 0x10, SC_DOWN = 0x11, SC_LEFT = 0x0E, SC_RIGHT = 0x0F,
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
     SC_PHONE_MENU = 0x94, SC_CLEAR = 0x01,
-    // Extra N-Gage helper actions send the same keypad scancodes Android's overlay uses.
-    SC_EXTRA_POUND = 0x7F, SC_EXTRA_STAR = '*'
+    // Verified N-Gage action scancodes for the installed N-Gage runtime/game.
+    SC_NGAGE_A = 0xE4, SC_NGAGE_B = 0xE5
 };
 
 static int EKARotatedDirectionScancode(int scancode, NSInteger rotation) {
@@ -139,8 +139,8 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         case EKAActionSoftLeft:  return @[@(SC_SOFT_LEFT)];
         case EKAActionSoftRight: return @[@(SC_SOFT_RIGHT)];
         case EKAActionMenu:      return @[];   // UI action, no scancode
-        case EKAActionAKey:      return @[@(SC_EXTRA_POUND)];
-        case EKAActionBKey:      return @[@(SC_EXTRA_STAR)];
+        case EKAActionAKey:      return @[@(SC_NGAGE_A)];
+        case EKAActionBKey:      return @[@(SC_NGAGE_B)];
         case EKAActionNum0:      return @[@('0')];
         case EKAActionNum1:      return @[@('1')];
         case EKAActionNum2:      return @[@('2')];
