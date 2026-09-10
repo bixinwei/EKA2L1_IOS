@@ -27,6 +27,12 @@ on:
 permissions:
   contents: write   # needed to create the draft release
 
+# A newer push supersedes any IPA still compiling for this branch. This prevents obsolete builds
+# from consuming the macOS runner while the user waits for the newest IPA.
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-ipa:
     runs-on: macos-15
@@ -62,8 +68,26 @@ jobs:
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           xcodebuild -version
 
-      - name: Install Ninja
-        run: brew install ninja
+      - name: Install Ninja and ccache
+        run: brew install ninja ccache
+
+      # macOS runners are clean on every job. Preserve compiler outputs across runs; UI-only
+      # changes then reuse the large emulator core instead of rebuilding every translation unit.
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: eka2l1-ios-ccache-v1-${{ github.sha }}
+          restore-keys: |
+            eka2l1-ios-ccache-v1-
+
+      - name: Configure compiler cache
+        run: |
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "CCACHE_NOHASHDIR=true" >> "$GITHUB_ENV"
+          ccache --set-config=max_size=1G
+          ccache --zero-stats
 
       - name: Test backup transactions (host, no simulator)
         run: |
@@ -95,10 +119,16 @@ jobs:
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
       - name: Build the app
-        run: cmake --build build-ios-device --target eka2l1 -j"$(sysctl -n hw.logicalcpu)"
+        run: |
+          cmake --build build-ios-device --target eka2l1 -j"$(sysctl -n hw.logicalcpu)"
+          ccache --show-stats
 
       - name: Package unsigned IPA
         run: |

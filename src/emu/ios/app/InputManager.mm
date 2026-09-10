@@ -30,7 +30,7 @@ enum {
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
     SC_PHONE_MENU = 0x94, SC_CLEAR = 0x01,
     // Verified N-Gage action scancodes for the installed N-Gage runtime/game.
-    SC_NGAGE_A = 0xE4
+    SC_NGAGE_A = 0xE4, SC_NGAGE_B = 0xE5
 };
 
 static int EKARotatedDirectionScancode(int scancode, NSInteger rotation) {
@@ -140,9 +140,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         case EKAActionSoftRight: return @[@(SC_SOFT_RIGHT)];
         case EKAActionMenu:      return @[];   // UI action, no scancode
         case EKAActionAKey:      return @[@(SC_NGAGE_A)];
-        // 0xE5 was only a guess and was disproved on-device. Keep the saved action visible,
-        // but emit nothing until the B probe determines its real guest scan code.
-        case EKAActionBKey:      return @[];
+        case EKAActionBKey:      return @[@(SC_NGAGE_B)];
         case EKAActionNum0:      return @[@('0')];
         case EKAActionNum1:      return @[@('1')];
         case EKAActionNum2:      return @[@('2')];

@@ -29,7 +29,7 @@ enum {
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
     // Verified against the installed N-Gage game: Application 1B / 1C.
     SC_NGAGE_A = 0xE4,
-    // B remains unverified; C was confirmed by the final-batch on-device probe.
+    // Verified against the installed N-Gage game: A / B / C.
     SC_NGAGE_B = 0xE5, SC_NGAGE_C = 0x01
 };
 
@@ -989,11 +989,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         CGPoint p = [t locationInView:self];
         NSInteger idx = [self controlIndexAtPoint:p];
         if (idx < 0) continue;
-        NSString *label = _controls[idx][@"label"];
-        if ([label isEqualToString:@"B"]) {
-            [self showScanProbeForTarget:label];
-            continue;
-        }
         if ([self isJoystickAt:idx]) {
             // Claim the stick for this finger unless another *live* finger already drives it
             // (one stick → first finger wins). A stale owner is reclaimed so the stick self-heals.
@@ -1067,10 +1062,6 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     }
     if (self.editing) {
         return self;
-    }
-    if (_scanProbe) {
-        UIView *probeHit = [_scanProbe hitTest:[self convertPoint:point toView:_scanProbe] withEvent:event];
-        if (probeHit) return probeHit;
     }
     if ([self controlIndexAtPoint:point] >= 0) {
         return self;

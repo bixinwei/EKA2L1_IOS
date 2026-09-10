@@ -36,7 +36,7 @@ typedef NS_ENUM(NSInteger, EKAAction) {
     EKAActionSoftRight,
     EKAActionMenu,          // Opens the emulator's own in-game menu (not a phone key).
     EKAActionAKey,          // N-Gage Action A (Application 1B / 0xE4); numeric value retained for saved bindings.
-    EKAActionBKey,          // N-Gage Action B; scan code pending interactive verification. Numeric value retained for saved bindings.
+    EKAActionBKey,          // N-Gage Action B (Application 1C / 0xE5); numeric value retained for saved bindings.
     EKAActionNum0,
     EKAActionNum1,
     EKAActionNum2,
