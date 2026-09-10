@@ -140,6 +140,8 @@ static NSString *EKAScanCodeName(int code) {
     }
 }
 
+static const NSUInteger kScanTestBatchSize = 20;
+
 // ---- Built-in -> editable custom-layout conversion ------------------------
 // Normalized element builders (cx/cy are fractions of width/height, size of min(W,H)). Used by
 // +customLayoutForBuiltinLayout: to render a built-in layout as editable custom elements.
@@ -200,6 +202,9 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     NSUInteger _scanTestGeneration;
     NSInteger _scanHeldCode;
     BOOL _scanBatchRunning;
+    CGPoint _scanPickerOrigin;
+    CGPoint _scanPickerDragStart;
+    BOOL _hasScanPickerOrigin;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -724,7 +729,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 
 - (void)refreshScanBatchUI {
     NSArray<NSNumber *> *codes = [self scanTestCodeOrder];
-    const NSUInteger start = _scanBatchIndex * 10;
+    const NSUInteger start = _scanBatchIndex * kScanTestBatchSize;
     if (start >= codes.count) {
         _scanBatchStatus.text = @"全部扫描码批次已测试完毕。";
         [_scanBatchAction setTitle:@"已完成" forState:UIControlStateNormal];
@@ -733,7 +738,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         return;
     }
 
-    const NSUInteger end = MIN(start + 10, codes.count);
+    const NSUInteger end = MIN(start + kScanTestBatchSize, codes.count);
     NSMutableArray<NSString *> *labels = [NSMutableArray arrayWithCapacity:end - start];
     for (NSUInteger index = start; index < end; ++index) {
         const int code = codes[index].intValue;
@@ -763,7 +768,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 - (void)runNextScanBatch {
     if (_scanBatchRunning) return;
     NSArray<NSNumber *> *codes = [self scanTestCodeOrder];
-    const NSUInteger start = _scanBatchIndex * 10;
+    const NSUInteger start = _scanBatchIndex * kScanTestBatchSize;
     if (start >= codes.count) {
         [self refreshScanBatchUI];
         return;
@@ -771,7 +776,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 
     _scanBatchRunning = YES;
     const NSUInteger generation = ++_scanTestGeneration;
-    const NSUInteger end = MIN(start + 10, codes.count);
+    const NSUInteger end = MIN(start + kScanTestBatchSize, codes.count);
     [self refreshScanBatchUI];
 
     for (NSUInteger index = start; index < end; ++index) {
@@ -814,13 +819,33 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     _scanBatchStop = nil;
 }
 
+- (void)handleScanPickerPan:(UIPanGestureRecognizer *)gesture {
+    UIView *panel = gesture.view.superview;
+    if (!panel || !_scanCodePicker) return;
+
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        _scanPickerDragStart = panel.frame.origin;
+    }
+    CGPoint translation = [gesture translationInView:_scanCodePicker];
+    const CGFloat maxX = MAX(0.0, _scanCodePicker.bounds.size.width - panel.bounds.size.width);
+    const CGFloat maxY = MAX(0.0, _scanCodePicker.bounds.size.height - panel.bounds.size.height);
+    CGPoint origin = CGPointMake(MIN(maxX, MAX(0.0, _scanPickerDragStart.x + translation.x)),
+                                 MIN(maxY, MAX(0.0, _scanPickerDragStart.y + translation.y)));
+    panel.frame = (CGRect){origin, panel.bounds.size};
+    _scanPickerOrigin = origin;
+    _hasScanPickerOrigin = YES;
+}
+
 - (void)showScanCodePicker {
     if (_scanCodePicker) {
         [self dismissScanCodePicker];
         return;
     }
     [self releaseAllHeld];
-    _scanBatchIndex = 0;
+    // Resume an unfinished batch after closing the panel. Only restart after every code was tried.
+    if (_scanBatchIndex * kScanTestBatchSize >= [self scanTestCodeOrder].count) {
+        _scanBatchIndex = 0;
+    }
 
     UIView *picker = [[UIView alloc] initWithFrame:self.bounds];
     picker.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -834,15 +859,27 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 
     const CGFloat panelW = MIN(400.0, MAX(280.0, self.bounds.size.width - 28.0));
     const CGFloat panelH = MIN(310.0, MAX(250.0, self.bounds.size.height - 40.0));
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake((self.bounds.size.width - panelW) / 2.0,
-                                                              (self.bounds.size.height - panelH) / 2.0,
-                                                              panelW, panelH)];
+    const CGFloat maxX = MAX(0.0, self.bounds.size.width - panelW);
+    const CGFloat maxY = MAX(0.0, self.bounds.size.height - panelH);
+    CGPoint panelOrigin = _hasScanPickerOrigin ? _scanPickerOrigin :
+                          CGPointMake(maxX / 2.0, maxY / 2.0);
+    panelOrigin.x = MIN(maxX, MAX(0.0, panelOrigin.x));
+    panelOrigin.y = MIN(maxY, MAX(0.0, panelOrigin.y));
+    UIView *panel = [[UIView alloc] initWithFrame:(CGRect){panelOrigin, CGSizeMake(panelW, panelH)}];
     panel.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin |
                              UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
     panel.backgroundColor = [UIColor colorWithWhite:0.10 alpha:0.97];
     panel.layer.cornerRadius = 14.0;
     panel.clipsToBounds = YES;
     [picker addSubview:panel];
+
+    // A wide, non-button header keeps dragging reliable without stealing the action buttons.
+    UIView *dragHandle = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelW - 58, 58)];
+    dragHandle.userInteractionEnabled = YES;
+    [panel addSubview:dragHandle];
+    UIPanGestureRecognizer *panelPan = [[UIPanGestureRecognizer alloc] initWithTarget:self
+                                                                                  action:@selector(handleScanPickerPan:)];
+    [dragHandle addGestureRecognizer:panelPan];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 10, panelW - 64, 22)];
     title.text = @"A · 自动扫描码测试";
@@ -851,7 +888,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [panel addSubview:title];
 
     UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 32, panelW - 32, 18)];
-    hint.text = @"每批依次发送 10 个码；命中后可立即停止";
+    hint.text = @"拖动标题可移动；每批依次发送 20 个码，命中后立即停止";
     hint.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
     hint.font = [UIFont systemFontOfSize:11];
     [panel addSubview:hint];
