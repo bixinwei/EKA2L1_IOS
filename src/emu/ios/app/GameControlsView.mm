@@ -28,7 +28,9 @@ enum {
     SC_UP = 0x10, SC_DOWN = 0x11, SC_LEFT = 0x0E, SC_RIGHT = 0x0F,
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
     // Verified against the installed N-Gage game: Application 1B / 1C.
-    SC_NGAGE_A = 0xE4, SC_NGAGE_B = 0xE5
+    SC_NGAGE_A = 0xE4,
+    // B/C are only layout placeholders until the interactive probe identifies them.
+    SC_NGAGE_B = 0xE5, SC_NGAGE_C = 0xE6
 };
 
 static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
@@ -105,6 +107,23 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     NSArray<NSNumber *> *_joyCodes; // direction scancodes currently held by the stick
 
     UIImpactFeedbackGenerator *_haptic;  // lazily created when hapticsEnabled fires
+
+    // N-Gage B/C scan-code probe.  It is deliberately a child view rather than a modal so the
+    // game remains visible while the user watches whether the current batch takes effect.
+    UIView *_scanProbe;
+    UILabel *_scanProbeStatus;
+    UIButton *_scanProbeAction;
+    UIButton *_scanProbeStop;
+    NSArray<NSNumber *> *_scanProbeCodes;
+    NSString *_scanProbeTarget;
+    NSUInteger _scanProbeBIndex;
+    NSUInteger _scanProbeCIndex;
+    NSUInteger _scanProbeGeneration;
+    NSInteger _scanProbeHeldCode;
+    BOOL _scanProbeRunning;
+    CGPoint _scanProbeOrigin;
+    CGPoint _scanProbeDragStart;
+    BOOL _hasScanProbeOrigin;
 
 }
 
@@ -253,6 +272,10 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
                     copy[@"codes"] = EKANgageCandidateCodes(SC_NGAGE_A);
                 } else if ([label isEqualToString:@"B"] && ![codes isEqualToArray:EKANgageCandidateCodes(SC_NGAGE_B)]) {
                     copy[@"codes"] = EKANgageCandidateCodes(SC_NGAGE_B);
+                } else if ([label isEqualToString:@"C"] && ![codes isEqualToArray:EKANgageCandidateCodes(SC_NGAGE_C)]) {
+                    copy[@"codes"] = EKANgageCandidateCodes(SC_NGAGE_C);
+                } else if ([label isEqualToString:@"FIRE"]) {
+                    copy[@"label"] = @"F";
                 }
             }
             [_elements addObject:copy];
@@ -377,7 +400,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 
             // FIRE occupies the (otherwise empty) centre cell of the D-pad.
             CGFloat cell = dpad / 3.0;
-            [self addControl:@[@(SC_FIRE)] label:@"FIRE"
+            [self addControl:@[@(SC_FIRE)] label:@"F"
                         rect:CGRectInset(CGRectMake(dpadX + cell, dpadTop + cell, cell, cell), 3, 3)];
 
             // L / R sit just above the top-left (↖) and top-right (↗) diagonal arrows.
@@ -402,7 +425,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [self addDpadInRect:CGRectMake(dpadX, dpadTop, dpad, dpad)];
 
             CGFloat cell = dpad / 3.0;
-            [self addControl:@[@(SC_FIRE)] label:@"FIRE"
+            [self addControl:@[@(SC_FIRE)] label:@"F"
                         rect:CGRectInset(CGRectMake(dpadX + cell, dpadTop + cell, cell, cell), 3, 3)];
 
             CGFloat softYa = dpadTop - softH - 8;
@@ -417,6 +440,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
                 CGFloat aX = W - margin - aD;
                 CGFloat midY = dpadTop + dpad / 2.0;
                 CGFloat left = aX - aD - 6;
+                [self addControl:EKANgageCandidateCodes(SC_NGAGE_C) label:@"C" rect:CGRectMake(left, midY - 2 * aD - 11, aD, aD)];
                 [self addControl:EKANgageCandidateCodes(SC_NGAGE_A) label:@"A" rect:CGRectMake(left, midY - aD - 5, aD, aD)];
                 [self addControl:EKANgageCandidateCodes(SC_NGAGE_B) label:@"B" rect:CGRectMake(left, midY + 5, aD, aD)];
                 [self addControl:@[@(SC_POUND)] label:@"#" rect:CGRectMake(aX, midY - aD - 5, aD, aD)];
@@ -440,6 +464,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             CGFloat aD = MIN(70 * s, W * 0.5 - margin);
             CGFloat aX = W - margin - aD;
             CGFloat left = aX - aD - 6;
+            [self addControl:EKANgageCandidateCodes(SC_NGAGE_C) label:@"C" rect:CGRectMake(left, bottom - 3 * aD - 12, aD, aD)];
             [self addControl:EKANgageCandidateCodes(SC_NGAGE_A) label:@"A" rect:CGRectMake(left, bottom - 2 * aD - 6, aD, aD)];
             [self addControl:EKANgageCandidateCodes(SC_NGAGE_B) label:@"B" rect:CGRectMake(left, bottom - aD, aD, aD)];
             [self addControl:@[@(SC_POUND)] label:@"#" rect:CGRectMake(aX, bottom - 2 * aD - 6, aD, aD)];
@@ -447,7 +472,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 
             CGFloat fireDj = 84 * s;
             CGFloat fireX = aX - 10 - fireDj;
-            [self addControl:@[@(SC_FIRE)] label:@"FIRE" rect:CGRectMake(fireX, bottom - fireDj, fireDj, fireDj)];
+            [self addControl:@[@(SC_FIRE)] label:@"F" rect:CGRectMake(fireX, bottom - fireDj, fireDj, fireDj)];
             break;
         }
         case 2: {  // Android variant 3: numeric keypad + softkeys, no D-pad
@@ -681,12 +706,191 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     return [[event allTouches] containsObject:_joyTouch];
 }
 
+// Keep potentially destructive navigation/system codes at the tail of the run.  A is excluded:
+// 0xE4 has already been verified and must never be injected while testing B or C.
+- (NSArray<NSNumber *> *)scanProbeCodeOrder {
+    static NSArray<NSNumber *> *codes;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSMutableOrderedSet<NSNumber *> *ordered = [NSMutableOrderedSet orderedSet];
+        for (NSInteger code = 0; code <= 0xF8; ++code) {
+            if (code != SC_NGAGE_A) [ordered addObject:@(code)];
+        }
+        NSArray<NSNumber *> *deferred = @[@(0x01), @(0x04), @(0x0D), @(0x94)];
+        for (NSNumber *code in deferred) {
+            [ordered removeObject:code];
+            [ordered addObject:code];
+        }
+        codes = ordered.array;
+    });
+    return codes;
+}
+
+- (NSUInteger)scanProbeBatchIndex {
+    return [_scanProbeTarget isEqualToString:@"C"] ? _scanProbeCIndex : _scanProbeBIndex;
+}
+
+- (void)setScanProbeBatchIndex:(NSUInteger)index {
+    if ([_scanProbeTarget isEqualToString:@"C"]) _scanProbeCIndex = index;
+    else _scanProbeBIndex = index;
+}
+
+- (void)scanProbeMove:(UIPanGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        _scanProbeDragStart = _scanProbe.frame.origin;
+        return;
+    }
+    if (gesture.state != UIGestureRecognizerStateChanged && gesture.state != UIGestureRecognizerStateEnded) return;
+    CGPoint translation = [gesture translationInView:self];
+    CGRect frame = _scanProbe.frame;
+    frame.origin.x = MIN(MAX(8, _scanProbeDragStart.x + translation.x), MAX(8, self.bounds.size.width - frame.size.width - 8));
+    frame.origin.y = MIN(MAX(8, _scanProbeDragStart.y + translation.y), MAX(8, self.bounds.size.height - frame.size.height - 8));
+    _scanProbe.frame = frame;
+    _scanProbeOrigin = frame.origin;
+    _hasScanProbeOrigin = YES;
+}
+
+- (void)updateScanProbeUI {
+    const NSUInteger batchSize = 20;
+    NSUInteger index = [self scanProbeBatchIndex];
+    NSUInteger start = index * batchSize;
+    NSUInteger count = _scanProbeCodes.count;
+    if (start >= count) {
+        _scanProbeStatus.text = [NSString stringWithFormat:@"%@ 的全部 %lu 个候选码已测试。", _scanProbeTarget, (unsigned long)count];
+        [_scanProbeAction setTitle:@"从第一批重新开始" forState:UIControlStateNormal];
+        _scanProbeAction.enabled = !_scanProbeRunning;
+        _scanProbeStop.hidden = YES;
+        return;
+    }
+    NSUInteger end = MIN(start + batchSize, count);
+    NSMutableArray<NSString *> *hex = [NSMutableArray array];
+    for (NSUInteger i = start; i < end; ++i) [hex addObject:[NSString stringWithFormat:@"0x%02lX", (unsigned long)_scanProbeCodes[i].unsignedIntegerValue]];
+    _scanProbeStatus.text = [NSString stringWithFormat:@"第 %lu 批（%lu–%lu / %lu）：\n%@\n观察游戏；若命中请停止并告诉我该码。",
+                            (unsigned long)(index + 1), (unsigned long)(start + 1), (unsigned long)end,
+                            (unsigned long)count, [hex componentsJoinedByString:@"  "]];
+    [_scanProbeAction setTitle:_scanProbeRunning ? @"正在发送…" : (index == 0 ? @"开始本批测试" : @"继续下一批") forState:UIControlStateNormal];
+    _scanProbeAction.enabled = !_scanProbeRunning;
+    _scanProbeStop.hidden = !_scanProbeRunning;
+}
+
+- (void)releaseScanProbeHeldCode {
+    if (_scanProbeHeldCode >= 0) {
+        eka2l1::ios::bridge::key(_scanProbeHeldCode, false);
+        _scanProbeHeldCode = -1;
+    }
+}
+
+- (void)stopScanProbe {
+    ++_scanProbeGeneration;
+    _scanProbeRunning = NO;
+    [self releaseScanProbeHeldCode];
+    [self updateScanProbeUI];
+}
+
+- (void)closeScanProbe {
+    [self stopScanProbe];
+    [_scanProbe removeFromSuperview];
+    _scanProbe = nil;
+    _scanProbeStatus = nil;
+    _scanProbeAction = nil;
+    _scanProbeStop = nil;
+}
+
+- (void)runScanProbeBatch {
+    const NSUInteger batchSize = 20;
+    NSUInteger batch = [self scanProbeBatchIndex];
+    NSUInteger start = batch * batchSize;
+    if (start >= _scanProbeCodes.count) {
+        [self setScanProbeBatchIndex:0];
+        [self updateScanProbeUI];
+        return;
+    }
+    _scanProbeRunning = YES;
+    NSUInteger generation = ++_scanProbeGeneration;
+    [self updateScanProbeUI];
+    NSUInteger end = MIN(start + batchSize, _scanProbeCodes.count);
+    for (NSUInteger i = start; i < end; ++i) {
+        NSTimeInterval when = (i - start) * 0.48;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(when * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (!_scanProbeRunning || generation != _scanProbeGeneration) return;
+            _scanProbeHeldCode = _scanProbeCodes[i].integerValue;
+            eka2l1::ios::bridge::key(_scanProbeHeldCode, true);
+            if (self.hapticsEnabled) { if (!_haptic) _haptic = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight]; [_haptic impactOccurred]; }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (generation == _scanProbeGeneration) [self releaseScanProbeHeldCode];
+            });
+        });
+    }
+    NSTimeInterval finish = (end - start) * 0.48 + 0.14;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(finish * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (!_scanProbeRunning || generation != _scanProbeGeneration) return;
+        _scanProbeRunning = NO;
+        [self setScanProbeBatchIndex:batch + 1];
+        [self updateScanProbeUI];
+    });
+}
+
+- (void)showScanProbeForTarget:(NSString *)target {
+    if (_scanProbe) { [self closeScanProbe]; }
+    _scanProbeTarget = [target copy];
+    _scanProbeCodes = [self scanProbeCodeOrder];
+    _scanProbeHeldCode = -1;
+    CGFloat width = MIN(390, MAX(280, self.bounds.size.width - 32));
+    CGFloat height = 245;
+    CGPoint origin = _hasScanProbeOrigin ? _scanProbeOrigin : CGPointMake(MAX(16, (self.bounds.size.width - width) / 2), 22);
+    _scanProbe = [[UIView alloc] initWithFrame:CGRectMake(origin.x, origin.y, width, height)];
+    _scanProbe.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.94];
+    _scanProbe.layer.cornerRadius = 12;
+    _scanProbe.layer.borderWidth = 1;
+    _scanProbe.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.30].CGColor;
+    _scanProbe.clipsToBounds = YES;
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(14, 0, width - 80, 42)];
+    title.text = [NSString stringWithFormat:@"N-Gage %@ · 扫描码确认", target];
+    title.textColor = UIColor.whiteColor;
+    title.font = [UIFont boldSystemFontOfSize:16];
+    [_scanProbe addSubview:title];
+    UIPanGestureRecognizer *drag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(scanProbeMove:)];
+    [title addGestureRecognizer:drag]; title.userInteractionEnabled = YES;
+
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+    close.frame = CGRectMake(width - 46, 4, 40, 34);
+    [close setTitle:@"关闭" forState:UIControlStateNormal];
+    [close addTarget:self action:@selector(closeScanProbe) forControlEvents:UIControlEventTouchUpInside];
+    [_scanProbe addSubview:close];
+
+    _scanProbeStatus = [[UILabel alloc] initWithFrame:CGRectMake(14, 46, width - 28, 112)];
+    _scanProbeStatus.numberOfLines = 0;
+    _scanProbeStatus.textColor = [UIColor colorWithWhite:0.92 alpha:1];
+    _scanProbeStatus.font = [UIFont systemFontOfSize:12];
+    [_scanProbe addSubview:_scanProbeStatus];
+    _scanProbeAction = [UIButton buttonWithType:UIButtonTypeSystem];
+    _scanProbeAction.frame = CGRectMake(14, height - 58, width - 122, 42);
+    _scanProbeAction.backgroundColor = [UIColor colorWithRed:0.16 green:0.47 blue:0.90 alpha:1];
+    _scanProbeAction.layer.cornerRadius = 8;
+    [_scanProbeAction setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [_scanProbeAction addTarget:self action:@selector(runScanProbeBatch) forControlEvents:UIControlEventTouchUpInside];
+    [_scanProbe addSubview:_scanProbeAction];
+    _scanProbeStop = [UIButton buttonWithType:UIButtonTypeSystem];
+    _scanProbeStop.frame = CGRectMake(width - 98, height - 58, 84, 42);
+    [_scanProbeStop setTitle:@"停止" forState:UIControlStateNormal];
+    [_scanProbeStop addTarget:self action:@selector(stopScanProbe) forControlEvents:UIControlEventTouchUpInside];
+    [_scanProbe addSubview:_scanProbeStop];
+    [self addSubview:_scanProbe];
+    [self updateScanProbeUI];
+}
+
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     if (self.editing) return;   // gestures handle editing; no key output
     for (UITouch *t in touches) {
         CGPoint p = [t locationInView:self];
         NSInteger idx = [self controlIndexAtPoint:p];
         if (idx < 0) continue;
+        NSString *label = _controls[idx][@"label"];
+        if ([label isEqualToString:@"B"] || [label isEqualToString:@"C"]) {
+            [self showScanProbeForTarget:label];
+            continue;
+        }
         if ([self isJoystickAt:idx]) {
             // Claim the stick for this finger unless another *live* finger already drives it
             // (one stick → first finger wins). A stale owner is reclaimed so the stick self-heals.
@@ -761,6 +965,10 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     if (self.editing) {
         return self;
     }
+    if (_scanProbe) {
+        UIView *probeHit = [_scanProbe hitTest:[self convertPoint:point toView:_scanProbe] withEvent:event];
+        if (probeHit) return probeHit;
+    }
     if ([self controlIndexAtPoint:point] >= 0) {
         return self;
     }
@@ -774,7 +982,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     // L/R softkeys on the sides. Positions are normalized to width/height; size to min(W,H).
     return @[
         @{ @"type": @"dpad", @"cx": @(0.28), @"cy": @(0.78), @"size": @(0.52) },
-        @{ @"type": @"key", @"codes": @[@(SC_FIRE)], @"label": @"FIRE", @"cx": @(0.76), @"cy": @(0.80), @"size": @(0.2) },
+        @{ @"type": @"key", @"codes": @[@(SC_FIRE)], @"label": @"F", @"cx": @(0.76), @"cy": @(0.80), @"size": @(0.2) },
         @{ @"type": @"key", @"codes": @[@(SC_SOFT_LEFT)], @"label": @"L", @"cx": @(0.12), @"cy": @(0.46), @"size": @(0.15) },
         @{ @"type": @"key", @"codes": @[@(SC_SOFT_RIGHT)], @"label": @"R", @"cx": @(0.88), @"cy": @(0.46), @"size": @(0.15) },
     ];
@@ -785,19 +993,20 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     switch (layout) {
         case 1:   // D-pad centred, FIRE in the middle, L/R above
             [out addObject:EKADpadEl(0.5, 0.78, 0.52)];
-            [out addObject:EKAKeyEl(SC_FIRE, @"FIRE", 0.5, 0.78, 0.16)];
+            [out addObject:EKAKeyEl(SC_FIRE, @"F", 0.5, 0.78, 0.16)];
             [out addObject:EKAKeyEl(SC_SOFT_LEFT, @"L", 0.33, 0.54, 0.12)];
             [out addObject:EKAKeyEl(SC_SOFT_RIGHT, @"R", 0.67, 0.54, 0.12)];
             break;
         case 5:   // Layout 1.5: D-pad + FIRE + L/R, plus # and * on the right edge
             [out addObject:EKADpadEl(0.40, 0.78, 0.50)];
-            [out addObject:EKAKeyEl(SC_FIRE, @"FIRE", 0.40, 0.78, 0.15)];
+            [out addObject:EKAKeyEl(SC_FIRE, @"F", 0.40, 0.78, 0.15)];
             [out addObject:EKAKeyEl(SC_SOFT_LEFT, @"L", 0.25, 0.54, 0.12)];
             [out addObject:EKAKeyEl(SC_SOFT_RIGHT, @"R", 0.55, 0.54, 0.12)];
             [out addObject:EKAKeyEl(SC_POUND, @"#", 0.88, 0.70, 0.13)];
             [out addObject:EKAKeyEl(SC_STAR, @"*", 0.88, 0.86, 0.13)];
             [out addObject:EKAKeyEl(SC_NGAGE_A, @"A", 0.72, 0.70, 0.13)];
             [out addObject:EKAKeyEl(SC_NGAGE_B, @"B", 0.72, 0.86, 0.13)];
+            [out addObject:EKAKeyEl(SC_NGAGE_C, @"C", 0.72, 0.54, 0.13)];
             break;
         case 6:   // Joystick bottom-left, FIRE + #/* bottom-right, L/R above
             [out addObject:EKAJoyEl(0.22, 0.76, 0.40)];
@@ -807,7 +1016,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
             [out addObject:EKAKeyEl(SC_STAR, @"*", 0.88, 0.85, 0.13)];
             [out addObject:EKAKeyEl(SC_NGAGE_A, @"A", 0.72, 0.68, 0.13)];
             [out addObject:EKAKeyEl(SC_NGAGE_B, @"B", 0.72, 0.85, 0.13)];
-            [out addObject:EKAKeyEl(SC_FIRE, @"FIRE", 0.64, 0.80, 0.16)];
+            [out addObject:EKAKeyEl(SC_NGAGE_C, @"C", 0.72, 0.51, 0.13)];
+            [out addObject:EKAKeyEl(SC_FIRE, @"F", 0.64, 0.80, 0.16)];
             break;
         case 2:   // Centred numeric keypad + softkeys, no D-pad
             EKAAppendNumpad(out, 0.30, 0.50, 0.20, 0.12, 0.12);
@@ -838,9 +1048,10 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     return @[
         @{ @"label": @"D-pad", @"codes": @[], @"dpad": @(YES) },
         @{ @"label": @"Joystick", @"codes": @[], @"joystick": @(YES) },
-        @{ @"label": @"FIRE", @"codes": @[@(SC_FIRE)], @"dpad": @(NO) },
+        @{ @"label": @"F", @"codes": @[@(SC_FIRE)], @"dpad": @(NO) },
         @{ @"label": @"A", @"codes": EKANgageCandidateCodes(SC_NGAGE_A), @"dpad": @(NO) },
         @{ @"label": @"B", @"codes": EKANgageCandidateCodes(SC_NGAGE_B), @"dpad": @(NO) },
+        @{ @"label": @"C", @"codes": EKANgageCandidateCodes(SC_NGAGE_C), @"dpad": @(NO) },
         @{ @"label": @"L", @"codes": @[@(SC_SOFT_LEFT)], @"dpad": @(NO) },
         @{ @"label": @"R", @"codes": @[@(SC_SOFT_RIGHT)], @"dpad": @(NO) },
         @{ @"label": @"↑", @"codes": @[@(SC_UP)], @"dpad": @(NO) },

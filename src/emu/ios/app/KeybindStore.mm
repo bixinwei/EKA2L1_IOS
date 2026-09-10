@@ -29,7 +29,7 @@ NSString *EKAActionName(EKAAction action) {
         case EKAActionUpRight:   return @"Up-Right";
         case EKAActionDownLeft:  return @"Down-Left";
         case EKAActionDownRight: return @"Down-Right";
-        case EKAActionFire:      return @"Fire";
+        case EKAActionFire:      return @"F";
         case EKAActionSoftLeft:  return @"Left Softkey (L)";
         case EKAActionSoftRight: return @"Right Softkey (R)";
         case EKAActionMenu:      return @"Open Emulator Menu";
