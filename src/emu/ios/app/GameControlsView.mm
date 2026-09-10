@@ -70,6 +70,76 @@ static NSArray<NSNumber *> *EKANgageCandidateCodes(int code) {
     return @[@(code)];
 }
 
+// Human-readable names for the full Symbian standard scan-code space. Values that Symbian
+// deliberately leaves unassigned are still selectable: a game can use a raw, device-specific
+// code outside the documented set, and this picker is specifically for finding such a code.
+static NSString *EKAScanCodeName(int code) {
+    if (code >= '0' && code <= '9') return [NSString stringWithFormat:@"Number %c", code];
+    if (code >= 0xA4 && code <= 0xB3) return [NSString stringWithFormat:@"Device %X", code - 0xA4];
+    if (code >= 0xB4 && code <= 0xC3) return [NSString stringWithFormat:@"Application %X", code - 0xB4];
+    if (code >= 0xC9 && code <= 0xD8) return [NSString stringWithFormat:@"Device %X", code - 0xB9];
+    if (code >= 0xD9 && code <= 0xE8) return [NSString stringWithFormat:@"Application %X", code - 0xC9];
+    if (code >= 0xE9 && code <= 0xF0) return [NSString stringWithFormat:@"Device %X", code - 0xC9];
+    if (code >= 0xF1 && code <= 0xF8) return [NSString stringWithFormat:@"Application %X", code - 0xD1];
+    switch (code) {
+        case 0x00: return @"Null";
+        case 0x01: return @"Backspace / Clear";
+        case 0x02: return @"Tab";
+        case 0x03: return @"Enter";
+        case 0x04: return @"Escape";
+        case 0x05: return @"Space";
+        case 0x06: return @"Print Screen";
+        case 0x07: return @"Pause";
+        case 0x08: return @"Home";
+        case 0x09: return @"End";
+        case 0x0A: return @"Page Up";
+        case 0x0B: return @"Page Down";
+        case 0x0C: return @"Insert";
+        case 0x0D: return @"Delete";
+        case 0x0E: return @"Left";
+        case 0x0F: return @"Right";
+        case 0x10: return @"Up";
+        case 0x11: return @"Down";
+        case 0x12: return @"Left Shift";
+        case 0x13: return @"Right Shift";
+        case 0x14: return @"Left Alt";
+        case 0x15: return @"Right Alt";
+        case 0x16: return @"Left Ctrl";
+        case 0x17: return @"Right Ctrl";
+        case 0x18: return @"Left Fn";
+        case 0x19: return @"Right Fn";
+        case 0x1A: return @"Caps Lock";
+        case 0x1B: return @"Num Lock";
+        case 0x1C: return @"Scroll Lock";
+        case '*': return @"Asterisk";
+        case 0x7F: return @"Hash";
+        case 0x94: return @"Menu";
+        case 0x95: return @"Backlight On";
+        case 0x96: return @"Backlight Off";
+        case 0x97: return @"Backlight Toggle";
+        case 0x98: return @"Contrast Up";
+        case 0x99: return @"Contrast Down";
+        case 0x9A: return @"Slider Down";
+        case 0x9B: return @"Slider Up";
+        case 0x9C: return @"Dictaphone Play";
+        case 0x9D: return @"Dictaphone Stop";
+        case 0x9E: return @"Dictaphone Record";
+        case 0x9F: return @"Help";
+        case 0xA0: return @"Power Off";
+        case 0xA1: return @"Dial";
+        case 0xA2: return @"Volume Up";
+        case 0xA3: return @"Volume Down";
+        case 0xC4: return @"Yes";
+        case 0xC5: return @"No";
+        case 0xC6: return @"Brightness Up";
+        case 0xC7: return @"Brightness Down";
+        case 0xC8: return @"Keyboard Extend";
+        default:
+            if (code >= 0x60 && code <= 0x77) return [NSString stringWithFormat:@"F%d", code - 0x60 + 1];
+            return @"Reserved / raw";
+    }
+}
+
 // ---- Built-in -> editable custom-layout conversion ------------------------
 // Normalized element builders (cx/cy are fractions of width/height, size of min(W,H)). Used by
 // +customLayoutForBuiltinLayout: to render a built-in layout as editable custom elements.
@@ -119,6 +189,9 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     NSArray<NSNumber *> *_joyCodes; // direction scancodes currently held by the stick
 
     UIImpactFeedbackGenerator *_haptic;  // lazily created when hapticsEnabled fires
+
+    // Full-screen scan-code test picker shown from the on-screen A button.
+    UIView *_scanCodePicker;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -603,6 +676,103 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     [self setNeedsDisplay];
 }
 
+// ---- A button scan-code test picker ---------------------------------------
+
+- (void)dismissScanCodePicker {
+    [_scanCodePicker removeFromSuperview];
+    _scanCodePicker = nil;
+}
+
+- (void)sendSelectedScanCode:(UIButton *)sender {
+    const int code = (int)sender.tag;
+    [self dismissScanCodePicker];
+    eka2l1::ios::bridge::key(code, true);
+    [self fireHaptic];
+    // A short, explicit press mirrors a normal virtual-button tap but avoids leaving a
+    // raw diagnostic scan code held if the picker is dismissed or the layout rebuilds.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        eka2l1::ios::bridge::key(code, false);
+    });
+}
+
+- (void)showScanCodePicker {
+    if (_scanCodePicker) {
+        [self dismissScanCodePicker];
+        return;
+    }
+    [self releaseAllHeld];
+
+    UIView *picker = [[UIView alloc] initWithFrame:self.bounds];
+    picker.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    picker.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.45];
+
+    UIButton *backdrop = [UIButton buttonWithType:UIButtonTypeCustom];
+    backdrop.frame = picker.bounds;
+    backdrop.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [backdrop addTarget:self action:@selector(dismissScanCodePicker) forControlEvents:UIControlEventTouchUpInside];
+    [picker addSubview:backdrop];
+
+    const CGFloat panelW = MIN(400.0, MAX(280.0, self.bounds.size.width - 28.0));
+    const CGFloat panelH = MIN(560.0, MAX(260.0, self.bounds.size.height - 40.0));
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake((self.bounds.size.width - panelW) / 2.0,
+                                                              (self.bounds.size.height - panelH) / 2.0,
+                                                              panelW, panelH)];
+    panel.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin |
+                             UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
+    panel.backgroundColor = [UIColor colorWithWhite:0.10 alpha:0.97];
+    panel.layer.cornerRadius = 14.0;
+    panel.clipsToBounds = YES;
+    [picker addSubview:panel];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 10, panelW - 64, 22)];
+    title.text = @"A · 选择一个 Symbian 扫描码";
+    title.textColor = [UIColor whiteColor];
+    title.font = [UIFont boldSystemFontOfSize:15];
+    [panel addSubview:title];
+
+    UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 32, panelW - 32, 18)];
+    hint.text = @"点击后只发送该码一次；可逐项验证游戏内动作";
+    hint.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    hint.font = [UIFont systemFontOfSize:11];
+    [panel addSubview:hint];
+
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+    close.frame = CGRectMake(panelW - 52, 6, 46, 34);
+    [close setTitle:@"关闭" forState:UIControlStateNormal];
+    close.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    [close setTitleColor:[UIColor colorWithRed:0.35 green:0.72 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
+    [close addTarget:self action:@selector(dismissScanCodePicker) forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:close];
+
+    const CGFloat listTop = 58.0;
+    UIScrollView *list = [[UIScrollView alloc] initWithFrame:CGRectMake(0, listTop, panelW, panelH - listTop)];
+    list.alwaysBounceVertical = YES;
+    list.showsVerticalScrollIndicator = YES;
+    const CGFloat rowH = 36.0;
+    for (int code = 0; code <= 0xF8; ++code) {
+        UIButton *entry = [UIButton buttonWithType:UIButtonTypeSystem];
+        entry.tag = code;
+        entry.frame = CGRectMake(10, code * rowH, panelW - 20, rowH - 1);
+        entry.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        entry.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
+        entry.backgroundColor = (code % 2 == 0) ? [UIColor colorWithWhite:0.16 alpha:1.0]
+                                                  : [UIColor colorWithWhite:0.12 alpha:1.0];
+        entry.layer.cornerRadius = 5.0;
+        entry.titleLabel.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
+        NSString *caption = [NSString stringWithFormat:@"0x%02X   %@", code, EKAScanCodeName(code)];
+        [entry setTitle:caption forState:UIControlStateNormal];
+        [entry setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [entry addTarget:self action:@selector(sendSelectedScanCode:) forControlEvents:UIControlEventTouchUpInside];
+        [list addSubview:entry];
+    }
+    list.contentSize = CGSizeMake(panelW, 0xF9 * rowH + 6);
+    [panel addSubview:list];
+
+    _scanCodePicker = picker;
+    [self addSubview:picker];
+}
+
 // ---- Touch handling -------------------------------------------------------
 
 - (NSInteger)controlIndexAtPoint:(CGPoint)p {
@@ -700,6 +870,10 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         CGPoint p = [t locationInView:self];
         NSInteger idx = [self controlIndexAtPoint:p];
         if (idx < 0) continue;
+        if ([_controls[idx][@"label"] isEqualToString:@"A"]) {
+            [self showScanCodePicker];
+            continue;
+        }
         if ([self isJoystickAt:idx]) {
             // Claim the stick for this finger unless another *live* finger already drives it
             // (one stick → first finger wins). A stale owner is reclaimed so the stick self-heals.
@@ -770,6 +944,9 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     if (self.hidden) {
         return nil;
+    }
+    if (_scanCodePicker) {
+        return [_scanCodePicker hitTest:point withEvent:event];
     }
     if (self.editing) {
         return self;
