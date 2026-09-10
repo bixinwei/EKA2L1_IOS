@@ -23,16 +23,13 @@
 #import <AudioToolbox/AudioToolbox.h>
 
 #include <atomic>
-#include <algorithm>
-#include <cmath>
 #include <cstring>
-#include <vector>
 
 namespace eka2l1::drivers {
-    static double ensure_audio_session() {
+    static void ensure_audio_session() {
         static bool configured = false;
         if (configured) {
-            return [AVAudioSession sharedInstance].sampleRate;
+            return;
         }
         configured = true;
 
@@ -46,35 +43,27 @@ namespace eka2l1::drivers {
             err = nil;
         }
 
-        // The output route owns its real rate (usually 48 kHz on modern iPhones). The caller
-        // reads it after activation and explicitly resamples guest PCM if needed; merely
-        // requesting 44.1 kHz and assuming it was accepted can make sound play at the wrong rate.
-        [session setPreferredSampleRate:48000.0 error:&err]; err = nil;
+        // Prefer a hardware rate matching our streams (avoids extra resampling) and a
+        // generous IO buffer so the emulator has time to refill between callbacks —
+        // a too-small buffer causes underruns heard as crackling/scratching.
+        [session setPreferredSampleRate:44100.0 error:&err]; err = nil;
         [session setPreferredIOBufferDuration:0.023 error:&err]; err = nil; // ~1024 frames @ 44.1k
 
         [session setActive:YES error:&err];
         if (err) {
             LOG_WARN(DRIVER_AUD, "AVAudioSession setActive failed: {}", [[err localizedDescription] UTF8String]);
         }
-        return session.sampleRate;
     }
 
     class ios_audio_output_stream : public audio_output_stream {
         AudioComponentInstance unit_;
         data_callback callback_;
-        std::uint32_t rate_;           // guest PCM rate requested by the emulator
-        std::uint32_t hardware_rate_;  // active output route rate reported by AVAudioSession
+        std::uint32_t rate_;
         std::uint8_t chans_;
 
         std::atomic<float> volume_;
         std::atomic<bool> playing_;
-        std::atomic<std::uint64_t> source_frames_rendered_;
-
-        // Interleaved guest PCM retained between callbacks for linear rate conversion. AudioUnit
-        // asks in hardware-rate frames, while the Symbian player supplies rate_ frames.
-        std::vector<std::int16_t> source_samples_;
-        std::size_t source_start_frame_;
-        double source_position_;
+        std::atomic<std::uint64_t> frames_rendered_;
 
         bool valid_;
 
@@ -85,18 +74,12 @@ namespace eka2l1::drivers {
             , unit_(nullptr)
             , callback_(std::move(callback))
             , rate_(sample_rate)
-            , hardware_rate_(0)
             , chans_(channels ? channels : 1)
             , volume_(1.0f)
             , playing_(false)
-            , source_frames_rendered_(0)
-            , source_start_frame_(0)
-            , source_position_(0.0)
+            , frames_rendered_(0)
             , valid_(false) {
-            const double active_rate = ensure_audio_session();
-            hardware_rate_ = static_cast<std::uint32_t>(std::llround(active_rate));
-            if (hardware_rate_ == 0) hardware_rate_ = rate_;
-            source_samples_.reserve(static_cast<std::size_t>(8192) * chans_);
+            ensure_audio_session();
             valid_ = setup_unit();
         }
 
@@ -152,7 +135,7 @@ namespace eka2l1::drivers {
 
         bool current_frame_position(std::uint64_t *pos) override {
             if (pos) {
-                *pos = source_frames_rendered_.load();
+                *pos = frames_rendered_.load();
             }
             return true;
         }
@@ -181,9 +164,7 @@ namespace eka2l1::drivers {
                 0, &enable, sizeof(enable));
 
             AudioStreamBasicDescription fmt = {};
-            // This is the callback/client format. It must use the active hardware rate because
-            // this backend performs the guest-to-hardware conversion itself below.
-            fmt.mSampleRate = static_cast<Float64>(hardware_rate_);
+            fmt.mSampleRate = static_cast<Float64>(rate_);
             fmt.mFormatID = kAudioFormatLinearPCM;
             fmt.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
             fmt.mFramesPerPacket = 1;
@@ -194,7 +175,7 @@ namespace eka2l1::drivers {
 
             if (AudioUnitSetProperty(unit_, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input,
                     0, &fmt, sizeof(fmt)) != noErr) {
-                LOG_ERROR(DRIVER_AUD, "iOS audio: failed to set stream format ({} Hz, {} ch)", hardware_rate_, chans_);
+                LOG_ERROR(DRIVER_AUD, "iOS audio: failed to set stream format ({} Hz, {} ch)", rate_, chans_);
                 return false;
             }
 
@@ -209,91 +190,40 @@ namespace eka2l1::drivers {
                 return false;
             }
 
-            LOG_INFO(DRIVER_AUD, "iOS RemoteIO audio output ready (guest {} Hz -> route {} Hz, {} ch)", rate_, hardware_rate_, chans_);
+            LOG_INFO(DRIVER_AUD, "iOS RemoteIO audio output ready ({} Hz, {} ch)", rate_, chans_);
             return true;
-        }
-
-        void ensure_source_frames(const std::size_t required_frames) {
-            const std::size_t available_frames = source_samples_.size() / chans_ - source_start_frame_;
-            if (available_frames >= required_frames) return;
-
-            const std::size_t requested_frames = required_frames - available_frames;
-            const std::size_t write_offset = source_samples_.size();
-            source_samples_.resize(write_offset + requested_frames * chans_);
-            std::size_t produced_frames = callback_ ? callback_(source_samples_.data() + write_offset, requested_frames) : 0;
-            produced_frames = std::min(produced_frames, requested_frames);
-            if (produced_frames < requested_frames) {
-                std::memset(source_samples_.data() + write_offset + produced_frames * chans_, 0,
-                    (requested_frames - produced_frames) * chans_ * sizeof(std::int16_t));
-            }
-        }
-
-        void compact_source_frames() {
-            if (source_start_frame_ < 2048) return;
-            const std::size_t remaining_frames = source_samples_.size() / chans_ - source_start_frame_;
-            std::memmove(source_samples_.data(), source_samples_.data() + source_start_frame_ * chans_,
-                remaining_frames * chans_ * sizeof(std::int16_t));
-            source_samples_.resize(remaining_frames * chans_);
-            source_start_frame_ = 0;
-        }
-
-        void render_resampled(std::int16_t *out, const std::size_t output_frames) {
-            if (!out || output_frames == 0) return;
-            const double ratio = static_cast<double>(rate_) / static_cast<double>(hardware_rate_);
-            const std::size_t required_frames = static_cast<std::size_t>(std::floor(source_position_ +
-                (output_frames - 1) * ratio)) + 2;
-            ensure_source_frames(required_frames);
-
-            for (std::size_t frame = 0; frame < output_frames; ++frame) {
-                const double source_at = source_position_ + frame * ratio;
-                const std::size_t first = static_cast<std::size_t>(source_at);
-                const float fraction = static_cast<float>(source_at - first);
-                const std::int16_t *a = source_samples_.data() + (source_start_frame_ + first) * chans_;
-                const std::int16_t *b = a + chans_;
-                for (std::size_t channel = 0; channel < chans_; ++channel) {
-                    const float interpolated = a[channel] + (b[channel] - a[channel]) * fraction;
-                    out[frame * chans_ + channel] = static_cast<std::int16_t>(std::lrint(interpolated));
-                }
-            }
-
-            source_position_ += output_frames * ratio;
-            const std::size_t consumed_frames = static_cast<std::size_t>(source_position_);
-            source_position_ -= consumed_frames;
-            source_start_frame_ += consumed_frames;
-            source_frames_rendered_.fetch_add(consumed_frames, std::memory_order_relaxed);
-            compact_source_frames();
         }
 
         static OSStatus render_cb(void *ref, AudioUnitRenderActionFlags *flags, const AudioTimeStamp *ts,
             UInt32 bus, UInt32 num_frames, AudioBufferList *data) {
             ios_audio_output_stream *self = reinterpret_cast<ios_audio_output_stream *>(ref);
 
-            // The stream format above is packed/interleaved, therefore RemoteIO supplies one
-            // buffer. Treat an unexpected buffer list as silence instead of invoking the guest
-            // callback twice and consuming audio at double speed.
-            if (data->mNumberBuffers != 1 || !data->mBuffers[0].mData) {
-                for (UInt32 b = 0; b < data->mNumberBuffers; ++b) {
-                    if (data->mBuffers[b].mData) {
-                        std::memset(data->mBuffers[b].mData, 0, data->mBuffers[b].mDataByteSize);
+            for (UInt32 b = 0; b < data->mNumberBuffers; b++) {
+                std::int16_t *out = reinterpret_cast<std::int16_t *>(data->mBuffers[b].mData);
+                const std::size_t total_samples = data->mBuffers[b].mDataByteSize / sizeof(std::int16_t);
+
+                std::size_t produced_frames = 0;
+                if (self->callback_) {
+                    produced_frames = self->callback_(out, static_cast<std::size_t>(num_frames));
+                }
+
+                std::size_t produced_samples = produced_frames * self->chans_;
+                if (produced_samples > total_samples) {
+                    produced_samples = total_samples;
+                }
+                if (produced_samples < total_samples) {
+                    std::memset(out + produced_samples, 0, (total_samples - produced_samples) * sizeof(std::int16_t));
+                }
+
+                const float vol = self->volume_.load();
+                if (vol < 0.999f) {
+                    for (std::size_t i = 0; i < produced_samples; i++) {
+                        out[i] = static_cast<std::int16_t>(out[i] * vol);
                     }
                 }
-                return noErr;
-            }
-            std::int16_t *out = reinterpret_cast<std::int16_t *>(data->mBuffers[0].mData);
-            const std::size_t total_samples = data->mBuffers[0].mDataByteSize / sizeof(std::int16_t);
-            const std::size_t output_frames = std::min<std::size_t>(num_frames, total_samples / self->chans_);
-            self->render_resampled(out, output_frames);
-            if (output_frames * self->chans_ < total_samples) {
-                std::memset(out + output_frames * self->chans_, 0,
-                    (total_samples - output_frames * self->chans_) * sizeof(std::int16_t));
             }
 
-            const float vol = self->volume_.load();
-            if (vol < 0.999f) {
-                for (std::size_t i = 0; i < output_frames * self->chans_; i++) {
-                    out[i] = static_cast<std::int16_t>(out[i] * vol);
-                }
-            }
+            self->frames_rendered_.fetch_add(num_frames);
             return noErr;
         }
     };
