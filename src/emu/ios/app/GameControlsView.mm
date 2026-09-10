@@ -82,6 +82,9 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     }
 }
 
+@interface GameControlsView () <UIPickerViewDataSource, UIPickerViewDelegate>
+@end
+
 @implementation GameControlsView {
     NSMutableArray<NSDictionary *> *_controls;  // {codes:[NSNumber], label:NSString, rect:NSValue}
     NSMapTable<UITouch *, NSNumber *> *_touchToControl;
@@ -121,9 +124,12 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     NSUInteger _scanProbeGeneration;
     NSInteger _scanProbeHeldCode;
     BOOL _scanProbeRunning;
+    BOOL _scanProbeIsCandidateSelector;
     CGPoint _scanProbeOrigin;
     CGPoint _scanProbeDragStart;
     BOOL _hasScanProbeOrigin;
+    UIPickerView *_scanCandidatePicker;
+    NSArray<NSNumber *> *_scanCandidateCodes;
 
 }
 
@@ -784,7 +790,7 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     ++_scanProbeGeneration;
     _scanProbeRunning = NO;
     [self releaseScanProbeHeldCode];
-    [self updateScanProbeUI];
+    if (!_scanProbeIsCandidateSelector) [self updateScanProbeUI];
 }
 
 - (void)closeScanProbe {
@@ -794,6 +800,9 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     _scanProbeStatus = nil;
     _scanProbeAction = nil;
     _scanProbeStop = nil;
+    _scanCandidatePicker = nil;
+    _scanCandidateCodes = nil;
+    _scanProbeIsCandidateSelector = NO;
 }
 
 - (void)runScanProbeBatch {
@@ -830,7 +839,100 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
     });
 }
 
+// C fired only in the final automatic batch. Expose exactly that final batch as a picker, so each
+// candidate can be tested deliberately without replaying the preceding scan codes.
+- (NSArray<NSNumber *> *)scanCandidateCodesForC {
+    if (_scanCandidateCodes) return _scanCandidateCodes;
+    NSArray<NSNumber *> *allCodes = [self scanProbeCodeOrder];
+    const NSUInteger batchSize = 20;
+    NSUInteger start = ((allCodes.count - 1) / batchSize) * batchSize;
+    _scanCandidateCodes = [allCodes subarrayWithRange:NSMakeRange(start, allCodes.count - start)];
+    return _scanCandidateCodes;
+}
+
+- (NSInteger)numberOfComponentsInPickerView:(UIPickerView *)pickerView { return 1; }
+
+- (NSInteger)pickerView:(UIPickerView *)pickerView numberOfRowsInComponent:(NSInteger)component {
+    return [self scanCandidateCodesForC].count;
+}
+
+- (NSString *)pickerView:(UIPickerView *)pickerView titleForRow:(NSInteger)row forComponent:(NSInteger)component {
+    return [NSString stringWithFormat:@"0x%02lX", (unsigned long)[self scanCandidateCodesForC][row].unsignedIntegerValue];
+}
+
+- (void)pickerView:(UIPickerView *)pickerView didSelectRow:(NSInteger)row inComponent:(NSInteger)component {
+    _scanProbeStatus.text = [NSString stringWithFormat:@"当前选择：0x%02lX。点击“发送测试码”验证。", (unsigned long)[self scanCandidateCodesForC][row].unsignedIntegerValue];
+}
+
+- (void)sendSelectedCCandidate {
+    NSInteger row = [_scanCandidatePicker selectedRowInComponent:0];
+    if (row < 0) row = 0;
+    int code = [self scanCandidateCodesForC][row].intValue;
+    _scanProbeStatus.text = [NSString stringWithFormat:@"已发送：0x%02X", code];
+    eka2l1::ios::bridge::key(code, true);
+    if (self.hapticsEnabled) { if (!_haptic) _haptic = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight]; [_haptic impactOccurred]; }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        eka2l1::ios::bridge::key(code, false);
+    });
+}
+
+- (void)showCCandidatePicker {
+    if (_scanProbe) [self closeScanProbe];
+    _scanProbeTarget = @"C";
+    _scanProbeIsCandidateSelector = YES;
+    CGFloat width = MIN(340, MAX(280, self.bounds.size.width - 32));
+    CGFloat height = 315;
+    CGPoint origin = _hasScanProbeOrigin ? _scanProbeOrigin : CGPointMake(MAX(16, (self.bounds.size.width - width) / 2), 22);
+    _scanProbe = [[UIView alloc] initWithFrame:CGRectMake(origin.x, origin.y, width, height)];
+    _scanProbe.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.94];
+    _scanProbe.layer.cornerRadius = 12;
+    _scanProbe.layer.borderWidth = 1;
+    _scanProbe.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.30].CGColor;
+    _scanProbe.clipsToBounds = YES;
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(14, 0, width - 80, 42)];
+    title.text = @"N-Gage C · 候选码确认";
+    title.textColor = UIColor.whiteColor;
+    title.font = [UIFont boldSystemFontOfSize:16];
+    title.userInteractionEnabled = YES;
+    [title addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(scanProbeMove:)]];
+    [_scanProbe addSubview:title];
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+    close.frame = CGRectMake(width - 46, 4, 40, 34);
+    [close setTitle:@"关闭" forState:UIControlStateNormal];
+    [close addTarget:self action:@selector(closeScanProbe) forControlEvents:UIControlEventTouchUpInside];
+    [_scanProbe addSubview:close];
+
+    UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(14, 42, width - 28, 22)];
+    hint.text = @"C 已在最后一批触发；逐个选择并发送即可定位。";
+    hint.textColor = [UIColor colorWithWhite:0.76 alpha:1];
+    hint.font = [UIFont systemFontOfSize:11];
+    [_scanProbe addSubview:hint];
+    _scanCandidatePicker = [[UIPickerView alloc] initWithFrame:CGRectMake(14, 64, width - 28, 154)];
+    _scanCandidatePicker.dataSource = self;
+    _scanCandidatePicker.delegate = self;
+    _scanCandidatePicker.backgroundColor = [UIColor colorWithWhite:0.14 alpha:1];
+    _scanCandidatePicker.layer.cornerRadius = 8;
+    [_scanProbe addSubview:_scanCandidatePicker];
+    _scanProbeStatus = [[UILabel alloc] initWithFrame:CGRectMake(14, 223, width - 28, 24)];
+    _scanProbeStatus.text = [NSString stringWithFormat:@"当前选择：0x%02lX", (unsigned long)[self scanCandidateCodesForC][0].unsignedIntegerValue];
+    _scanProbeStatus.textAlignment = NSTextAlignmentCenter;
+    _scanProbeStatus.textColor = [UIColor colorWithWhite:0.92 alpha:1];
+    _scanProbeStatus.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+    [_scanProbe addSubview:_scanProbeStatus];
+    UIButton *test = [UIButton buttonWithType:UIButtonTypeSystem];
+    test.frame = CGRectMake(14, 258, width - 28, 42);
+    test.backgroundColor = [UIColor colorWithRed:0.16 green:0.47 blue:0.90 alpha:1];
+    test.layer.cornerRadius = 8;
+    [test setTitle:@"发送测试码" forState:UIControlStateNormal];
+    [test setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [test addTarget:self action:@selector(sendSelectedCCandidate) forControlEvents:UIControlEventTouchUpInside];
+    [_scanProbe addSubview:test];
+    [self addSubview:_scanProbe];
+}
+
 - (void)showScanProbeForTarget:(NSString *)target {
+    if ([target isEqualToString:@"C"]) { [self showCCandidatePicker]; return; }
     if (_scanProbe) { [self closeScanProbe]; }
     _scanProbeTarget = [target copy];
     _scanProbeCodes = [self scanProbeCodeOrder];
