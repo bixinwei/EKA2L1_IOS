@@ -27,10 +27,10 @@ enum {
     SC_STAR = '*', SC_POUND = 0x7F,
     SC_UP = 0x10, SC_DOWN = 0x11, SC_LEFT = 0x0E, SC_RIGHT = 0x0F,
     SC_FIRE = 0xA7, SC_SOFT_LEFT = 0xA4, SC_SOFT_RIGHT = 0xA5,
-    // N-Gage 2.0 on the emulated N95 maps its actions through the slide-out
-    // multimedia controls: Play (182) and Stop (183). DeviceA/DeviceB are
-    // unrelated generic hardware keys on this device, so do not use them here.
-    SC_NGAGE_A = 0xB6, SC_NGAGE_B = 0xB7
+    // N-Gage action buttons are Symbian's dedicated Device A/B scan codes.
+    // Do not alias these to keypad 5/0: games distinguish the dedicated actions
+    // from ordinary phone keypad input.
+    SC_NGAGE_A = 0xAE, SC_NGAGE_B = 0xAF
 };
 
 static int EKARotatedTouchDirectionScancode(int scancode, NSInteger rotation) {
@@ -242,8 +242,8 @@ static void EKAAppendNumpad(NSMutableArray *out, CGFloat left, CGFloat top,
         _elements = [NSMutableArray array];
         for (NSDictionary *el in customLayout) {
             NSMutableDictionary *copy = [el mutableCopy];
-            // Migrate layouts saved while A/B used generic DeviceA/DeviceB or keypad guesses.
-            // N-Gage 2.0 interprets the N95 multimedia Play/Stop events instead.
+            // Migrate layouts saved while A/B were incorrectly assigned to unrelated
+            // application/media codes. N-Gage titles consume Device A/Device B.
             if ([copy[@"type"] isEqualToString:@"key"]) {
                 NSString *label = copy[@"label"];
                 NSArray *codes = copy[@"codes"];
