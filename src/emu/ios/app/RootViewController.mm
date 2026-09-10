@@ -1132,13 +1132,21 @@ static const CGFloat EKAGameMenuMargin = 8.0;
 
 - (void)selectLayout:(NSInteger)i {
     self.keyLayout = i;
-    [self updateChrome];
     // Persist the choice as this game's default so it sticks next launch.
     if (self.gameRunning) {
         EKAGameSettings *s = [GameSettingsStore settingsForUid:self.currentGameUid];
         s.keyLayout = i;
+        // A selected built-in layout must not remain shadowed by an older custom layout for the
+        // current orientation. Keep the other orientation's custom layout intact.
+        BOOL portrait = self.view.bounds.size.height >= self.view.bounds.size.width;
+        if (portrait) {
+            s.customLayoutPortrait = nil;
+        } else {
+            s.customLayoutLandscape = nil;
+        }
         [GameSettingsStore saveSettings:s forUid:self.currentGameUid];
     }
+    [self updateChrome];
 }
 
 // Controller / keyboard path: the custom GameMenuView (navigable with dpad/arrows + A/Enter).
