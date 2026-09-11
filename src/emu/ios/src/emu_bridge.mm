@@ -86,27 +86,6 @@ namespace eka2l1::ios::bridge {
             }
         }
 
-        // `resources` is deliberately preserved after first launch because it also contains
-        // generated caches.  New built-in shaders must nevertheless be staged on upgrade:
-        // otherwise a saved per-game shader selection points at a file which exists only in
-        // the updated IPA bundle and the renderer fails while the guest launches.
-        void copy_bundled_shader_if_missing(NSString *bundleRoot, NSString *dataRoot, NSString *shaderName) {
-            NSFileManager *fm = [NSFileManager defaultManager];
-            NSString *relative = [@"resources/upscale" stringByAppendingPathComponent:shaderName];
-            NSString *src = [bundleRoot stringByAppendingPathComponent:relative];
-            NSString *dst = [dataRoot stringByAppendingPathComponent:relative];
-            if (![fm fileExistsAtPath:src] || [fm fileExistsAtPath:dst]) {
-                return;
-            }
-            [fm createDirectoryAtPath:[dst stringByDeletingLastPathComponent]
-          withIntermediateDirectories:YES attributes:nil error:nil];
-            NSError *err = nil;
-            if (![fm copyItemAtPath:src toPath:dst error:&err]) {
-                LOG_ERROR(eka2l1::FRONTEND_CMDLINE, "Failed to stage bundled shader '{}': {}",
-                    [shaderName UTF8String], err ? [[err localizedDescription] UTF8String] : "unknown");
-            }
-        }
-
         void refresh_bundled_resource(NSString *bundleRoot, NSString *dataRoot, NSString *relative) {
             NSFileManager *fm = [NSFileManager defaultManager];
             NSString *src = [bundleRoot stringByAppendingPathComponent:relative];
@@ -183,9 +162,6 @@ namespace eka2l1::ios::bridge {
                 // otherwise keep an older shader indefinitely.
                 refresh_bundled_resource(bundleRoot, dataRoot, @"resources/sprite_norm.frag");
                 refresh_bundled_resource(bundleRoot, dataRoot, @"resources/sprite_upscaled.frag");
-                // Existing installations keep their writable resources directory. Stage new
-                // shaders independently so an IPA upgrade cannot leave a saved shader missing.
-                copy_bundled_shader_if_missing(bundleRoot, dataRoot, @"color-enhance.frag");
                 copy_bundle_subdir(bundleRoot, dataRoot, @"compat");
                 copy_bundle_subdir(bundleRoot, dataRoot, @"patch");
             }

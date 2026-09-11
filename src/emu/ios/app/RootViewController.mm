@@ -1216,7 +1216,6 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     settings.enhancementEnabled = YES;
     [GameSettingsStore saveSettings:settings forUid:self.currentGameUid];
     // Shader selection is queued safely and committed on the graphics thread's next draw.
-    eka2l1::ios::bridge::set_app_filter_shader(self.currentGameUid, "color-enhance");
     eka2l1::ios::bridge::set_active_filter_shader("color-enhance");
     eka2l1::ios::bridge::set_color_enhancement_params((float)settings.enhancementExposure,
                                                        (float)settings.enhancementSaturation);

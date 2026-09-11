@@ -127,13 +127,11 @@ set_target_properties(eka2l1 PROPERTIES
 # bundle layout and fail to read the Info.plist (CoreSimulator: "Missing bundle ID").
 set(EKA2L1_ASSETS_DIR "$<TARGET_BUNDLE_DIR:eka2l1>/assets")
 set(DRIVERS_RES "${PROJECT_SOURCE_DIR}/src/emu/drivers/resources")
-set(IOS_FILTER_RES "${PROJECT_SOURCE_DIR}/src/emu/ios/resources/upscale")
 
 add_custom_command(TARGET eka2l1 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${EKA2L1_ASSETS_DIR}/resources"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${DRIVERS_RES}/gles" "${EKA2L1_ASSETS_DIR}/resources"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${DRIVERS_RES}/upscale" "${EKA2L1_ASSETS_DIR}/resources/upscale"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${IOS_FILTER_RES}/color-enhance.frag" "${EKA2L1_ASSETS_DIR}/resources/upscale/color-enhance.frag"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DRIVERS_RES}/defaultbank.hsb" "${EKA2L1_ASSETS_DIR}/resources"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DRIVERS_RES}/defaultbank.sf2" "${EKA2L1_ASSETS_DIR}/resources"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${EKA2L1_ASSETS_DIR}/compat"
