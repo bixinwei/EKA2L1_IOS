@@ -86,6 +86,8 @@ namespace eka2l1::drivers {
         GLint color_loc;
         GLint proj_loc;
         GLint model_loc;
+        GLint exposure_loc_;
+        GLint saturation_loc_;
         GLint flip_loc;
 
         GLint color_upscaled_loc;

@@ -352,6 +352,8 @@ namespace eka2l1::drivers {
         color_loc = sprite_program->get_uniform_location("u_color").value_or(-1);
         proj_loc = sprite_program->get_uniform_location("u_proj").value_or(-1);
         model_loc = sprite_program->get_uniform_location("u_model").value_or(-1);
+        exposure_loc_ = sprite_program->get_uniform_location("uExposure").value_or(-1);
+        saturation_loc_ = sprite_program->get_uniform_location("uSaturation").value_or(-1);
         in_position_loc = is_stricted() ? 0 : sprite_program->get_attrib_location("in_position").value_or(-1);
         in_texcoord_loc = is_stricted() ? 1 : sprite_program->get_attrib_location("in_texcoord").value_or(-1);
 
@@ -573,6 +575,12 @@ namespace eka2l1::drivers {
                 mask_program->use(this);
             } else {
                 sprite_program->use(this);
+                if (exposure_loc_ >= 0) {
+                    glUniform1f(exposure_loc_, color_exposure_.load(std::memory_order_relaxed));
+                }
+                if (saturation_loc_ >= 0) {
+                    glUniform1f(saturation_loc_, color_saturation_.load(std::memory_order_relaxed));
+                }
             }
         }
 
