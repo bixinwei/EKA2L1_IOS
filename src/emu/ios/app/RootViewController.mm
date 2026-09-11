@@ -1295,6 +1295,9 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     settings.enhancementExposure = self.enhancementExposureSlider.value;
     settings.enhancementSaturation = self.enhancementSaturationSlider.value;
     eka2l1::ios::bridge::set_color_enhancement_params((float)settings.enhancementExposure, (float)settings.enhancementSaturation);
+    // Keep the runtime shader selected even if another per-game filter was
+    // queued while the panel was open.
+    eka2l1::ios::bridge::set_active_filter_shader("color-enhance");
     [self.enhancementSaveTimer invalidate];
     self.enhancementSaveTimer = [NSTimer scheduledTimerWithTimeInterval:0.25 target:self
         selector:@selector(persistEnhancementSettings) userInfo:nil repeats:NO];
