@@ -712,7 +712,14 @@ namespace eka2l1::ios {
     void launcher::set_active_filter_shader(const std::string &shader_name) {
         runtime_upscale_override_.store(!shader_name.empty(), std::memory_order_relaxed);
         if (sys && sys->get_graphics_driver()) {
-            sys->get_graphics_driver()->set_upscale_shader(shader_name);
+            // Color enhancement is implemented in the stable built-in upscale
+            // program. Avoid compiling/swapping a second runtime program while
+            // a game is rendering; that path was silently falling back on iOS.
+            if (shader_name == "color-enhance") {
+                sys->get_graphics_driver()->set_upscale_shader("");
+            } else {
+                sys->get_graphics_driver()->set_upscale_shader(shader_name);
+            }
         }
     }
 
