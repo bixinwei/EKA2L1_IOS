@@ -133,7 +133,6 @@ add_custom_command(TARGET eka2l1 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${EKA2L1_ASSETS_DIR}/resources"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${DRIVERS_RES}/gles" "${EKA2L1_ASSETS_DIR}/resources"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${DRIVERS_RES}/upscale" "${EKA2L1_ASSETS_DIR}/resources/upscale"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${IOS_FILTER_RES}/cinematic-light.frag" "${EKA2L1_ASSETS_DIR}/resources/upscale/cinematic-light.frag"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DRIVERS_RES}/defaultbank.hsb" "${EKA2L1_ASSETS_DIR}/resources"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DRIVERS_RES}/defaultbank.sf2" "${EKA2L1_ASSETS_DIR}/resources"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${EKA2L1_ASSETS_DIR}/compat"

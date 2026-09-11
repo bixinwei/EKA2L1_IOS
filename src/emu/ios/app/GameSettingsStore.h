@@ -58,9 +58,6 @@ typedef NS_ENUM(NSInteger, EKAScreenGravity) {
 // Upscale/filter shader name (e.g. "natural"); empty string = OFF (the default). Maps to a bundled
 // resources/upscale/<name>.frag and is applied via the core's per-app filter_shader_path.
 @property (nonatomic, copy) NSString *filterShader;
-// Enables the bundled cinematic-light post-process. It uses screen-space HDR tone mapping,
-// restrained highlight bloom and local contrast; it is separate from the technical upscale choice.
-@property (nonatomic, assign) BOOL visualEnhancement;
 // Custom touch layouts (arrays of element dicts, see GameControlsView). nil = use keyLayout.
 @property (nonatomic, copy, nullable) NSArray<NSDictionary *> *customLayoutPortrait;
 @property (nonatomic, copy, nullable) NSArray<NSDictionary *> *customLayoutLandscape;

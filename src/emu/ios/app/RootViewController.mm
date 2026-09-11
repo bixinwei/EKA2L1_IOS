@@ -795,7 +795,7 @@ static const CGFloat EKAGameMenuMargin = 8.0;
 // The visual enhancement is a purpose-built GLES post-process bundled with the iOS port.
 // It is selected here rather than overloading the user's technical Upscale Shader preference.
 - (NSString *)effectiveFilterShaderForSettings:(EKAGameSettings *)settings {
-    return settings.visualEnhancement ? @"cinematic-light" : (settings.filterShader ?: @"");
+    return settings.filterShader ?: @"";
 }
 
 - (void)launchAppUid:(std::uint32_t)uid {

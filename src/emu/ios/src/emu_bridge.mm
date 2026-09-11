@@ -167,7 +167,6 @@ namespace eka2l1::ios::bridge {
 
                 // Read-only assets shipped in the .app, copied into the writable area.
                 copy_bundle_subdir(bundleRoot, dataRoot, @"resources");
-                copy_bundled_shader_if_missing(bundleRoot, dataRoot, @"cinematic-light.frag");
                 copy_bundle_subdir(bundleRoot, dataRoot, @"compat");
                 copy_bundle_subdir(bundleRoot, dataRoot, @"patch");
             }
