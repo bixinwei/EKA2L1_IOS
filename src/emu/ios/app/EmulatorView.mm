@@ -33,7 +33,7 @@
     // happened to be 0 — the intermittent "touch is dead until I rotate a few times" bug.
     NSMapTable<UITouch *, NSNumber *> *_touchSlots;
     NSMutableDictionary<NSString *, NSNumber *> *_virtualTouchSlots;
-    NSMutableDictionary<NSString *, NSNumber *> *_virtualDirectionGenerations;
+    NSMutableDictionary<NSString *, NSValue *> *_virtualTouchPositions;
 }
 
 + (Class)layerClass {
@@ -63,7 +63,7 @@
         _lastHeight = 0;
         _touchSlots = [NSMapTable weakToStrongObjectsMapTable];
         _virtualTouchSlots = [NSMutableDictionary dictionary];
-        _virtualDirectionGenerations = [NSMutableDictionary dictionary];
+        _virtualTouchPositions = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -158,14 +158,24 @@
     const BOOL wasActive = (existing != nil);
     const int pointerId = active ? [self allocateSlotForVirtualTouch:identifier] : existing.intValue;
     const CGFloat scale = self.contentScaleFactor;
-    const int px = (int)(MAX(0.0, MIN(1.0, x)) * self.bounds.size.width * scale);
-    const int py = (int)(MAX(0.0, MIN(1.0, y)) * self.bounds.size.height * scale);
+    int px = (int)(MAX(0.0, MIN(1.0, x)) * self.bounds.size.width * scale);
+    int py = (int)(MAX(0.0, MIN(1.0, y)) * self.bounds.size.height * scale);
+    if (!active) {
+        NSValue *lastPosition = _virtualTouchPositions[identifier];
+        if (lastPosition) {
+            const CGPoint point = lastPosition.CGPointValue;
+            px = (int)point.x;
+            py = (int)point.y;
+        }
+    }
     const eka2l1::ios::bridge::touch_action action = !active ? eka2l1::ios::bridge::touch_action_up
         : (wasActive ? eka2l1::ios::bridge::touch_action_move : eka2l1::ios::bridge::touch_action_down);
     eka2l1::ios::bridge::touch(px, py, action, pointerId);
-    if (!active) {
+    if (active) {
+        _virtualTouchPositions[identifier] = [NSValue valueWithCGPoint:CGPointMake(px, py)];
+    } else {
         [_virtualTouchSlots removeObjectForKey:identifier];
-        [_virtualDirectionGenerations removeObjectForKey:identifier];
+        [_virtualTouchPositions removeObjectForKey:identifier];
     }
 }
 
@@ -183,39 +193,31 @@
     const int centerPY = (int)(MAX(0.0, MIN(1.0, centerY)) * height);
     const int targetPX = (int)(MAX(0.0, MIN(1.0, targetX)) * width);
     const int targetPY = (int)(MAX(0.0, MIN(1.0, targetY)) * height);
-    const NSUInteger generation = [_virtualDirectionGenerations[identifier] unsignedIntegerValue] + 1;
-    _virtualDirectionGenerations[identifier] = @(generation);
-
     // Mirror GameControlsView's real-finger joystick: capture the game's joystick at its
-    // centre first, then move that same pointer to the requested direction. A first event at
-    // the rim is ignored by many touch games because it misses their joystick hit target.
+    // centre first, then move that same pointer on the following display frame. InputManager
+    // deliberately calls this method from a display-linked state machine, so a new pointer's
+    // down and move can never be collapsed into one controller callback.
     if (!existing) {
         eka2l1::ios::bridge::touch(centerPX, centerPY, eka2l1::ios::bridge::touch_action_down, pointerId);
-        NSString *capturedIdentifier = [identifier copy];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 16 * NSEC_PER_MSEC),
-                       dispatch_get_main_queue(), ^{
-            NSNumber *currentSlot = self->_virtualTouchSlots[capturedIdentifier];
-            NSNumber *currentGeneration = self->_virtualDirectionGenerations[capturedIdentifier];
-            if (!currentSlot || currentSlot.intValue != pointerId ||
-                currentGeneration.unsignedIntegerValue != generation ||
-                !eka2l1::ios::bridge::is_running()) {
-                return;
-            }
-            eka2l1::ios::bridge::touch(targetPX, targetPY,
-                                       eka2l1::ios::bridge::touch_action_move, pointerId);
-        });
+        _virtualTouchPositions[identifier] = [NSValue valueWithCGPoint:CGPointMake(centerPX, centerPY)];
         return;
     }
+
+    const CGPoint lastPosition = [_virtualTouchPositions[identifier] CGPointValue];
+    if ((int)lastPosition.x == targetPX && (int)lastPosition.y == targetPY) return;
     eka2l1::ios::bridge::touch(targetPX, targetPY, eka2l1::ios::bridge::touch_action_move, pointerId);
+    _virtualTouchPositions[identifier] = [NSValue valueWithCGPoint:CGPointMake(targetPX, targetPY)];
 }
 
 - (void)releaseAllVirtualTouches {
     for (NSString *identifier in _virtualTouchSlots.allKeys.copy) {
         NSNumber *slot = _virtualTouchSlots[identifier];
-        eka2l1::ios::bridge::touch(0, 0, eka2l1::ios::bridge::touch_action_up, slot.intValue);
+        const CGPoint point = [_virtualTouchPositions[identifier] CGPointValue];
+        eka2l1::ios::bridge::touch((int)point.x, (int)point.y,
+                                   eka2l1::ios::bridge::touch_action_up, slot.intValue);
     }
     [_virtualTouchSlots removeAllObjects];
-    [_virtualDirectionGenerations removeAllObjects];
+    [_virtualTouchPositions removeAllObjects];
 }
 
 - (void)dispatchTouches:(NSSet<UITouch *> *)touches action:(eka2l1::ios::bridge::touch_action)action {

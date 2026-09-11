@@ -21,6 +21,7 @@
 #import "TouchMappingStore.h"
 #import <GameController/GameController.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <QuartzCore/CADisplayLink.h>
 #include <math.h>
 
 #include <ios/emu_bridge.h>
@@ -45,6 +46,7 @@ enum {
     CGFloat _leftStickX;
     NSSet<NSString *> *_activeTouchIds;
     NSSet<NSString *> *_activeDirectionIds;
+    CADisplayLink *_directionDisplayLink;
 }
 
 - (instancetype)init {
@@ -68,6 +70,7 @@ enum {
     _kbBindings = [KeybindStore keyboardBindingsForUid:uid];
     _ctrlBindings = [KeybindStore controllerBindingsForUid:uid];
     _touchMappings = [TouchMappingStore mappingsForUid:uid];
+    [self updateDirectionDisplayLinkState];
 
     // KeybindCaptureViewController temporarily installs its own valueChangedHandler to
     // listen for the button being assigned. GameController exposes only one handler per
@@ -152,6 +155,36 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     for (GCController *c in GCController.controllers) {
         [self attachController:c];
     }
+
+    if (!_directionDisplayLink) {
+        _directionDisplayLink = [CADisplayLink displayLinkWithTarget:self
+                                                            selector:@selector(onDirectionDisplayLink:)];
+        _directionDisplayLink.preferredFramesPerSecond = 60;
+        [_directionDisplayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+        [self updateDirectionDisplayLinkState];
+    }
+}
+
+- (void)dealloc {
+    [_directionDisplayLink invalidate];
+}
+
+- (void)onDirectionDisplayLink:(CADisplayLink *)displayLink {
+    (void)displayLink;
+    [self updateDirectionTouchesForDisplayFrame];
+}
+
+- (BOOL)hasDirectionTouchMapping {
+    for (NSDictionary *mapping in _touchMappings) {
+        NSString *type = mapping[@"type"];
+        if ([type isEqualToString:@"dpad"] || [type isEqualToString:@"steering"]) return YES;
+    }
+    return NO;
+}
+
+- (void)updateDirectionDisplayLinkState {
+    _directionDisplayLink.paused = !(self.enabled && !self.menuShown &&
+                                     !self.appsListShown && [self hasDirectionTouchMapping]);
 }
 
 - (void)onKeyboardConnect:(NSNotification *)note {
@@ -193,6 +226,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     if (!pad) {
         return;
     }
+    controller.handlerQueue = dispatch_get_main_queue();
     pad.valueChangedHandler = ^(GCExtendedGamepad *gamepad, GCControllerElement *element) {
         InputManager *s = weakSelf;
         if (!s) return;
@@ -268,16 +302,19 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 - (void)setEnabled:(BOOL)enabled {
     _enabled = enabled;
     [self recompute];
+    [self updateDirectionDisplayLinkState];
 }
 
 - (void)setMenuShown:(BOOL)menuShown {
     _menuShown = menuShown;
     [self recompute];
+    [self updateDirectionDisplayLinkState];
 }
 
 - (void)setAppsListShown:(BOOL)appsListShown {
     _appsListShown = appsListShown;
     [self recompute];
+    [self updateDirectionDisplayLinkState];
 }
 
 - (BOOL)controllerBindingIsReservedForTouch:(NSArray<NSString *> *)tokens {
@@ -331,7 +368,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     return nil;
 }
 
-- (void)recomputeMappedTouches {
+- (void)recomputeMappedButtonTouches {
     NSSet<NSString *> *desired = [self activeTouchMappingIds];
     for (NSString *identifier in desired) {
         if (![_activeTouchIds containsObject:identifier]) {
@@ -346,7 +383,9 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         }
     }
     _activeTouchIds = desired;
+}
 
+- (void)updateDirectionTouchesForDisplayFrame {
     const CGPoint direction = (self.enabled && !self.menuShown && !self.appsListShown) ? [self directionForHeldController] : CGPointZero;
     NSMutableSet<NSString *> *activeDisks = [NSMutableSet set];
     for (NSDictionary *mapping in _touchMappings) {
@@ -415,7 +454,12 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     BOOL uiNav = self.menuShown || self.appsListShown;
     NSSet<NSNumber *> *active = (self.enabled || uiNav) ? [self activeActions] : [NSSet set];
 
-    [self recomputeMappedTouches];
+    [self recomputeMappedButtonTouches];
+    if (!self.enabled || self.menuShown || self.appsListShown) {
+        // Do not leave a synthetic finger held until the next display refresh when gameplay
+        // stops or a menu takes ownership of the controller.
+        [self updateDirectionTouchesForDisplayFrame];
+    }
 
     if (uiNav) {
         // While a menu or the homescreen apps list is up, directions navigate it (move the
