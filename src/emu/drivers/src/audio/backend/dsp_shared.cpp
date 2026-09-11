@@ -214,18 +214,17 @@ namespace eka2l1::drivers {
     }
 
     std::uint64_t dsp_output_stream_shared::position() {
-        if (!freq_) {
-            return 0;
-        }
-
         return samples_played_ * 1000000ULL / freq_;
     }
 
     std::uint64_t dsp_output_stream_shared::real_time_position() {
-        // The guest playback position advances only while PCM is consumed from its ring.
-        // The backing device's clock also advances through padding silence and virtual stops,
-        // which makes streaming titles mistakenly skip their next buffer.
-        return position();
+        std::uint64_t frame_streamed = 0;
+        if (!stream_->current_frame_position(&frame_streamed)) {
+            LOG_ERROR(DRIVER_AUD, "Fail to retrieve streamed sample count!");
+            return 0;
+        }
+
+        return frame_streamed * channels_ * 1000000ULL / freq_;
     }
 
     dsp_input_stream_shared::dsp_input_stream_shared(drivers::audio_driver *aud)
