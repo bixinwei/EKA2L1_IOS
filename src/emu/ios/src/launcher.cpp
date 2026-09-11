@@ -27,6 +27,8 @@
 
 #include <config/app_settings.h>
 
+#include <drivers/graphics/graphics.h>
+
 #include <services/fbs/fbs.h>
 #include <services/applist/applist.h>
 
