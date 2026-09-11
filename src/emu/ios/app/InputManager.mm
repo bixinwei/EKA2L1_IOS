@@ -48,6 +48,8 @@ enum {
     NSSet<NSString *> *_activeTouchIds;
     NSSet<NSString *> *_activeDirectionIds;
     NSMutableDictionary<NSString *, NSNumber *> *_steeringNeutralSince;
+    NSMutableDictionary<NSString *, NSNumber *> *_steeringRenderedAxis;
+    NSMutableDictionary<NSString *, NSNumber *> *_steeringLastFrameTime;
     CADisplayLink *_directionDisplayLink;
 }
 
@@ -61,6 +63,8 @@ enum {
         _activeTouchIds = [NSSet set];
         _activeDirectionIds = [NSSet set];
         _steeringNeutralSince = [NSMutableDictionary dictionary];
+        _steeringRenderedAxis = [NSMutableDictionary dictionary];
+        _steeringLastFrameTime = [NSMutableDictionary dictionary];
         [self reloadBindingsForUid:0];
     }
     return self;
@@ -86,6 +90,8 @@ enum {
 
 - (void)releaseAllMappedTouches {
     [_steeringNeutralSince removeAllObjects];
+    [_steeringRenderedAxis removeAllObjects];
+    [_steeringLastFrameTime removeAllObjects];
     if (_activeTouchIds.count == 0 && _activeDirectionIds.count == 0) return;
     for (NSDictionary *mapping in _touchMappings) {
         if ([_activeTouchIds containsObject:mapping[@"id"]] || [_activeDirectionIds containsObject:mapping[@"id"]]) {
@@ -400,18 +406,22 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
         if ([type isEqualToString:@"steering"]) {
             NSString *identifier = mapping[@"id"];
             const CGFloat deadzone = MAX(0.0, MIN(0.35, [mapping[@"deadzone"] doubleValue]));
-            CGFloat axis = canDrive ? _leftStickX : 0.0;
+            CGFloat targetAxis = canDrive ? _leftStickX : 0.0;
             const BOOL wasActive = [_activeDirectionIds containsObject:identifier];
 
             if (!canDrive) {
                 // Menus, the app list and disabled gameplay must never retain a guest touch.
                 [_steeringNeutralSince removeObjectForKey:identifier];
+                [_steeringRenderedAxis removeObjectForKey:identifier];
+                [_steeringLastFrameTime removeObjectForKey:identifier];
                 continue;
             }
 
-            if (fabs(axis) <= deadzone) {
+            if (fabs(targetAxis) <= deadzone) {
                 if (!wasActive) {
                     [_steeringNeutralSince removeObjectForKey:identifier];
+                    [_steeringRenderedAxis removeObjectForKey:identifier];
+                    [_steeringLastFrameTime removeObjectForKey:identifier];
                     continue;
                 }
 
@@ -426,15 +436,40 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
                 }
                 if (now - neutralSince.doubleValue >= 0.12) {
                     [_steeringNeutralSince removeObjectForKey:identifier];
+                    [_steeringRenderedAxis removeObjectForKey:identifier];
+                    [_steeringLastFrameTime removeObjectForKey:identifier];
                     continue;
                 }
-                axis = 0.0;
+                targetAxis = 0.0;
             } else {
                 [_steeringNeutralSince removeObjectForKey:identifier];
-                const CGFloat sign = axis < 0.0 ? -1.0 : 1.0;
-                const CGFloat magnitude = (fabs(axis) - deadzone) / MAX(0.001, 1.0 - deadzone);
-                axis = sign * MAX(0.0, MIN(1.0, magnitude));
+                const CGFloat sign = targetAxis < 0.0 ? -1.0 : 1.0;
+                const CGFloat magnitude = (fabs(targetAxis) - deadzone) / MAX(0.001, 1.0 - deadzone);
+                targetAxis = sign * MAX(0.0, MIN(1.0, magnitude));
             }
+
+            // A real finger does not teleport from neutral to the end of the wheel. Some
+            // games consume drag deltas and only apply a fraction of one oversized move,
+            // leaving their wheel barely turned even while the stick remains fully held.
+            // Approach the requested angle over several display frames so the guest receives
+            // the same continuous path as an actual finger sliding along the semicircle.
+            CGFloat axis = 0.0;
+            NSNumber *renderedValue = _steeringRenderedAxis[identifier];
+            NSNumber *lastFrameValue = _steeringLastFrameTime[identifier];
+            if (wasActive && renderedValue && lastFrameValue) {
+                axis = renderedValue.doubleValue;
+                const CFTimeInterval elapsed = MAX(0.0, MIN(1.0 / 30.0, now - lastFrameValue.doubleValue));
+                const CGFloat maxStep = 5.0 * elapsed;
+                const CGFloat difference = targetAxis - axis;
+                if (fabs(difference) <= maxStep) {
+                    axis = targetAxis;
+                } else {
+                    axis += (difference < 0.0 ? -maxStep : maxStep);
+                }
+            }
+            _steeringRenderedAxis[identifier] = @(axis);
+            _steeringLastFrameTime[identifier] = @(now);
+
             if ([mapping[@"radius"] isKindOfClass:[NSNumber class]]) {
                 NSMutableDictionary *event = [mapping mutableCopy];
                 event[@"steeringAxis"] = @(axis);
