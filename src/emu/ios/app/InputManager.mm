@@ -22,6 +22,7 @@
 #import <GameController/GameController.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/CADisplayLink.h>
+#import <QuartzCore/CAMediaTiming.h>
 #include <math.h>
 
 #include <ios/emu_bridge.h>
@@ -46,6 +47,7 @@ enum {
     CGFloat _leftStickX;
     NSSet<NSString *> *_activeTouchIds;
     NSSet<NSString *> *_activeDirectionIds;
+    NSMutableDictionary<NSString *, NSNumber *> *_steeringNeutralSince;
     CADisplayLink *_directionDisplayLink;
 }
 
@@ -58,6 +60,7 @@ enum {
         _prevActive = [NSSet set];
         _activeTouchIds = [NSSet set];
         _activeDirectionIds = [NSSet set];
+        _steeringNeutralSince = [NSMutableDictionary dictionary];
         [self reloadBindingsForUid:0];
     }
     return self;
@@ -82,6 +85,7 @@ enum {
 }
 
 - (void)releaseAllMappedTouches {
+    [_steeringNeutralSince removeAllObjects];
     if (_activeTouchIds.count == 0 && _activeDirectionIds.count == 0) return;
     for (NSDictionary *mapping in _touchMappings) {
         if ([_activeTouchIds containsObject:mapping[@"id"]] || [_activeDirectionIds containsObject:mapping[@"id"]]) {
@@ -204,6 +208,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 - (void)onControllerDisconnect:(NSNotification *)note {
     [_heldCtrl removeAllObjects];
     _leftStickX = 0.0;
+    [self releaseAllMappedTouches];
     [self recompute];
 }
 
@@ -386,22 +391,55 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 }
 
 - (void)updateDirectionTouchesForDisplayFrame {
-    const CGPoint direction = (self.enabled && !self.menuShown && !self.appsListShown) ? [self directionForHeldController] : CGPointZero;
+    const BOOL canDrive = self.enabled && !self.menuShown && !self.appsListShown;
+    const CGPoint direction = canDrive ? [self directionForHeldController] : CGPointZero;
+    const CFTimeInterval now = CACurrentMediaTime();
     NSMutableSet<NSString *> *activeDisks = [NSMutableSet set];
     for (NSDictionary *mapping in _touchMappings) {
         NSString *type = mapping[@"type"];
         if ([type isEqualToString:@"steering"]) {
+            NSString *identifier = mapping[@"id"];
             const CGFloat deadzone = MAX(0.0, MIN(0.35, [mapping[@"deadzone"] doubleValue]));
-            CGFloat axis = _leftStickX;
-            if (fabs(axis) <= deadzone) continue;
-            const CGFloat sign = axis < 0.0 ? -1.0 : 1.0;
-            const CGFloat magnitude = (fabs(axis) - deadzone) / MAX(0.001, 1.0 - deadzone);
-            axis = sign * MAX(0.0, MIN(1.0, magnitude));
+            CGFloat axis = canDrive ? _leftStickX : 0.0;
+            const BOOL wasActive = [_activeDirectionIds containsObject:identifier];
+
+            if (!canDrive) {
+                // Menus, the app list and disabled gameplay must never retain a guest touch.
+                [_steeringNeutralSince removeObjectForKey:identifier];
+                continue;
+            }
+
+            if (fabs(axis) <= deadzone) {
+                if (!wasActive) {
+                    [_steeringNeutralSince removeObjectForKey:identifier];
+                    continue;
+                }
+
+                // Passing rapidly from full-left to full-right necessarily crosses the
+                // stick deadzone. Keep the same guest pointer held at the wheel's neutral
+                // point during that crossing; otherwise the game can miss the immediate
+                // up/down pair and leave its wheel permanently centred.
+                NSNumber *neutralSince = _steeringNeutralSince[identifier];
+                if (!neutralSince) {
+                    neutralSince = @(now);
+                    _steeringNeutralSince[identifier] = neutralSince;
+                }
+                if (now - neutralSince.doubleValue >= 0.12) {
+                    [_steeringNeutralSince removeObjectForKey:identifier];
+                    continue;
+                }
+                axis = 0.0;
+            } else {
+                [_steeringNeutralSince removeObjectForKey:identifier];
+                const CGFloat sign = axis < 0.0 ? -1.0 : 1.0;
+                const CGFloat magnitude = (fabs(axis) - deadzone) / MAX(0.001, 1.0 - deadzone);
+                axis = sign * MAX(0.0, MIN(1.0, magnitude));
+            }
             if ([mapping[@"radius"] isKindOfClass:[NSNumber class]]) {
                 NSMutableDictionary *event = [mapping mutableCopy];
                 event[@"steeringAxis"] = @(axis);
                 [self.delegate inputManagerSetTouchMapping:event active:YES];
-                [activeDisks addObject:mapping[@"id"]];
+                [activeDisks addObject:identifier];
                 continue;
             }
 
@@ -421,7 +459,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
             event[@"x"] = @(MAX(0.0, MIN(1.0, omt * omt * lx + 2.0 * omt * t * qx + t * t * rx)));
             event[@"y"] = @(MAX(0.0, MIN(1.0, omt * omt * ly + 2.0 * omt * t * qy + t * t * ry)));
             [self.delegate inputManagerSetTouchMapping:event active:YES];
-            [activeDisks addObject:mapping[@"id"]];
+            [activeDisks addObject:identifier];
             continue;
         }
         if (![type isEqualToString:@"dpad"]) continue;
