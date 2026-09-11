@@ -21,6 +21,7 @@
 #import "TouchMappingStore.h"
 #import <GameController/GameController.h>
 #import <CoreGraphics/CoreGraphics.h>
+#include <math.h>
 
 #include <ios/emu_bridge.h>
 
@@ -41,6 +42,7 @@ enum {
     NSArray<NSDictionary *> *_kbBindings;     // { keys:[GCKeyCode], action:EKAAction }
     NSArray<NSDictionary *> *_ctrlBindings;   // { tokens:[NSString], action:EKAAction }
     NSArray<NSDictionary *> *_touchMappings;  // { id, tokens, x, y }, per game only
+    CGFloat _leftStickX;
     NSSet<NSString *> *_activeTouchIds;
     NSSet<NSString *> *_activeDirectionIds;
 }
@@ -168,6 +170,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 
 - (void)onControllerDisconnect:(NSNotification *)note {
     [_heldCtrl removeAllObjects];
+    _leftStickX = 0.0;
     [self recompute];
 }
 
@@ -219,6 +222,7 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 
     const float TH = 0.5f;
     GCControllerDirectionPad *ls = gp.leftThumbstick;
+    _leftStickX = MAX(-1.0, MIN(1.0, ls.xAxis.value));
     if (ls.yAxis.value >  TH) [_heldCtrl addObject:@"LS_U"];
     if (ls.yAxis.value < -TH) [_heldCtrl addObject:@"LS_D"];
     if (ls.xAxis.value < -TH) [_heldCtrl addObject:@"LS_L"];
@@ -285,6 +289,10 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     for (NSDictionary *mapping in _touchMappings) {
         if ([mapping[@"type"] isEqualToString:@"dpad"]) {
             for (NSString *token in tokens) if ([directionTokens containsObject:token]) return YES;
+        } else if ([mapping[@"type"] isEqualToString:@"steering"]) {
+            for (NSString *token in tokens) {
+                if ([token isEqualToString:@"LS_L"] || [token isEqualToString:@"LS_R"]) return YES;
+            }
         } else if ([mapping[@"tokens"] isEqualToArray:tokens]) {
             return YES;
         }
@@ -342,7 +350,32 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
     const CGPoint direction = (self.enabled && !self.menuShown && !self.appsListShown) ? [self directionForHeldController] : CGPointZero;
     NSMutableSet<NSString *> *activeDisks = [NSMutableSet set];
     for (NSDictionary *mapping in _touchMappings) {
-        if (![mapping[@"type"] isEqualToString:@"dpad"]) continue;
+        NSString *type = mapping[@"type"];
+        if ([type isEqualToString:@"steering"]) {
+            const CGFloat deadzone = MAX(0.0, MIN(0.35, [mapping[@"deadzone"] doubleValue]));
+            CGFloat axis = _leftStickX;
+            if (fabs(axis) <= deadzone) continue;
+            const CGFloat sign = axis < 0.0 ? -1.0 : 1.0;
+            const CGFloat magnitude = (fabs(axis) - deadzone) / MAX(0.001, 1.0 - deadzone);
+            axis = sign * MAX(0.0, MIN(1.0, magnitude));
+            const CGFloat t = (axis + 1.0) * 0.5;
+            const CGFloat lx = [mapping[@"leftX"] doubleValue], ly = [mapping[@"leftY"] doubleValue];
+            const CGFloat cx = [mapping[@"x"] doubleValue], cy = [mapping[@"y"] doubleValue];
+            const CGFloat rx = [mapping[@"rightX"] doubleValue], ry = [mapping[@"rightY"] doubleValue];
+            // Quadratic Bezier whose midpoint is the calibrated neutral point.
+            const CGFloat qx = 2.0 * cx - 0.5 * (lx + rx);
+            const CGFloat qy = 2.0 * cy - 0.5 * (ly + ry);
+            const CGFloat omt = 1.0 - t;
+            NSMutableDictionary *event = [mapping mutableCopy];
+            event[@"centerX"] = mapping[@"x"];
+            event[@"centerY"] = mapping[@"y"];
+            event[@"x"] = @(MAX(0.0, MIN(1.0, omt * omt * lx + 2.0 * omt * t * qx + t * t * rx)));
+            event[@"y"] = @(MAX(0.0, MIN(1.0, omt * omt * ly + 2.0 * omt * t * qy + t * t * ry)));
+            [self.delegate inputManagerSetTouchMapping:event active:YES];
+            [activeDisks addObject:mapping[@"id"]];
+            continue;
+        }
+        if (![type isEqualToString:@"dpad"]) continue;
         if (direction.x == 0.0 && direction.y == 0.0) continue;
         NSMutableDictionary *event = [mapping mutableCopy];
         const CGFloat radius = [mapping[@"size"] doubleValue];

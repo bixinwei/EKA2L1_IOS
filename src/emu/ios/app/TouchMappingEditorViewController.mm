@@ -215,6 +215,21 @@
 - (void)positionMarkers {
     CGRect rect = [self gameRect];
     for (NSMutableDictionary *mapping in _mappings) {
+        if ([mapping[@"type"] isEqualToString:@"steering"]) {
+            if (CGRectIsEmpty(rect)) continue;
+            NSArray<NSString *> *roles = @[@"left", @"center", @"right"];
+            NSArray<NSString *> *xKeys = @[@"leftX", @"x", @"rightX"];
+            NSArray<NSString *> *yKeys = @[@"leftY", @"y", @"rightY"];
+            for (NSUInteger i = 0; i < roles.count; ++i) {
+                NSString *key = [NSString stringWithFormat:@"%@:%@", mapping[@"id"], roles[i]];
+                UIView *handle = _markers[key];
+                handle.bounds = CGRectMake(0, 0, 52, 52);
+                handle.layer.cornerRadius = 26;
+                handle.center = CGPointMake(CGRectGetMinX(rect) + rect.size.width * [mapping[xKeys[i]] doubleValue],
+                                                  CGRectGetMinY(rect) + rect.size.height * [mapping[yKeys[i]] doubleValue]);
+            }
+            continue;
+        }
         UIView *marker = _markers[mapping[@"id"]];
         if (!marker || CGRectIsEmpty(rect)) continue;
         const BOOL isDisk = [mapping[@"type"] isEqualToString:@"dpad"];
@@ -230,6 +245,30 @@
     for (UIView *marker in _markers.allValues) [marker removeFromSuperview];
     [_markers removeAllObjects];
     for (NSMutableDictionary *mapping in _mappings) {
+        if ([mapping[@"type"] isEqualToString:@"steering"]) {
+            NSArray<NSString *> *roles = @[@"left", @"center", @"right"];
+            NSArray<NSString *> *titles = @[@"左满", @"中立", @"右满"];
+            for (NSUInteger i = 0; i < roles.count; ++i) {
+                UIButton *handle = [UIButton buttonWithType:UIButtonTypeCustom];
+                handle.backgroundColor = i == 1 ? [UIColor colorWithRed:0.15 green:0.72 blue:0.40 alpha:0.92]
+                                                 : [UIColor colorWithRed:0.92 green:0.48 blue:0.12 alpha:0.92];
+                handle.layer.borderColor = UIColor.whiteColor.CGColor;
+                handle.layer.borderWidth = 2.0;
+                handle.clipsToBounds = YES;
+                handle.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+                [handle setTitle:titles[i] forState:UIControlStateNormal];
+                handle.accessibilityIdentifier = mapping[@"id"];
+                handle.accessibilityLabel = roles[i];
+                UIPanGestureRecognizer *drag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragMarker:)];
+                [handle addGestureRecognizer:drag];
+                UILongPressGestureRecognizer *remove = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(removeMarker:)];
+                remove.minimumPressDuration = 0.55;
+                [handle addGestureRecognizer:remove];
+                [self.view addSubview:handle];
+                _markers[[NSString stringWithFormat:@"%@:%@", mapping[@"id"], roles[i]]] = handle;
+            }
+            continue;
+        }
         UIButton *marker = [UIButton buttonWithType:UIButtonTypeCustom];
         marker.frame = CGRectMake(0, 0, 54, 54);
         marker.backgroundColor = [UIColor colorWithRed:0.12 green:0.48 blue:1.0 alpha:0.88];
@@ -303,6 +342,7 @@
     UIAlertController *choice = [UIAlertController alertControllerWithTitle:@"Add touch mapping" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     [choice addAction:[UIAlertAction actionWithTitle:@"Button target" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self beginButtonMapping]; }]];
     [choice addAction:[UIAlertAction actionWithTitle:@"Direction disk" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self addDirectionDisk]; }]];
+    [choice addAction:[UIAlertAction actionWithTitle:@"半圆方向盘" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [self addSteeringWheel]; }]];
     [choice addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     choice.popoverPresentationController.sourceView = _bar;
     choice.popoverPresentationController.sourceRect = _bar.bounds;
@@ -326,6 +366,19 @@
                                     @"x": @0.5, @"y": @0.5, @"size": @0.20 } mutableCopy];
     [_mappings addObject:disk];
     _hint.text = @"Drag the direction disk. Pinch it to resize.";
+    _hint.textColor = [UIColor colorWithWhite:0.78 alpha:1.0];
+    [self persist];
+    [self rebuildMarkers];
+}
+
+- (void)addSteeringWheel {
+    NSMutableDictionary *wheel = [@{ @"id": [[NSUUID UUID] UUIDString], @"type": @"steering",
+                                     @"x": @0.5, @"y": @0.78,
+                                     @"leftX": @0.30, @"leftY": @0.66,
+                                     @"rightX": @0.70, @"rightY": @0.66,
+                                     @"deadzone": @0.08 } mutableCopy];
+    [_mappings addObject:wheel];
+    _hint.text = @"分别拖动左满、中立、右满到游戏方向盘的对应触点。";
     _hint.textColor = [UIColor colorWithWhite:0.78 alpha:1.0];
     [self persist];
     [self rebuildMarkers];
@@ -355,8 +408,17 @@
     point.x = MAX(CGRectGetMinX(rect), MIN(CGRectGetMaxX(rect), point.x));
     point.y = MAX(CGRectGetMinY(rect), MIN(CGRectGetMaxY(rect), point.y));
     marker.center = point;
-    mapping[@"x"] = @((point.x - CGRectGetMinX(rect)) / rect.size.width);
-    mapping[@"y"] = @((point.y - CGRectGetMinY(rect)) / rect.size.height);
+    CGFloat x = (point.x - CGRectGetMinX(rect)) / rect.size.width;
+    CGFloat y = (point.y - CGRectGetMinY(rect)) / rect.size.height;
+    if ([mapping[@"type"] isEqualToString:@"steering"]) {
+        NSString *role = marker.accessibilityLabel;
+        if ([role isEqualToString:@"left"]) { mapping[@"leftX"] = @(x); mapping[@"leftY"] = @(y); }
+        else if ([role isEqualToString:@"right"]) { mapping[@"rightX"] = @(x); mapping[@"rightY"] = @(y); }
+        else { mapping[@"x"] = @(x); mapping[@"y"] = @(y); }
+    } else {
+        mapping[@"x"] = @(x);
+        mapping[@"y"] = @(y);
+    }
     if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled || pan.state == UIGestureRecognizerStateFailed) [self persist];
 }
 
@@ -385,7 +447,8 @@
     UIButton *marker = (UIButton *)press.view;
     NSMutableDictionary *mapping = [self mappingForIdentifier:marker.accessibilityIdentifier];
     if (!mapping) return;
-    NSString *name = [mapping[@"type"] isEqualToString:@"dpad"] ? @"Direction disk" : [KeybindStore controllerComboName:mapping[@"tokens"]];
+    NSString *name = [mapping[@"type"] isEqualToString:@"dpad"] ? @"Direction disk" :
+        ([mapping[@"type"] isEqualToString:@"steering"] ? @"半圆方向盘" : [KeybindStore controllerComboName:mapping[@"tokens"]]);
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Remove mapping?" message:name preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Remove" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
