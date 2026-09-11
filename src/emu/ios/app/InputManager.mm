@@ -22,7 +22,6 @@
 #import <GameController/GameController.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/CADisplayLink.h>
-#import <QuartzCore/CAMediaTiming.h>
 #include <math.h>
 
 #include <ios/emu_bridge.h>
@@ -47,7 +46,6 @@ enum {
     CGFloat _leftStickX;
     NSSet<NSString *> *_activeTouchIds;
     NSSet<NSString *> *_activeDirectionIds;
-    NSMutableDictionary<NSString *, NSNumber *> *_steeringNeutralSince;
     CADisplayLink *_directionDisplayLink;
 }
 
@@ -60,7 +58,6 @@ enum {
         _prevActive = [NSSet set];
         _activeTouchIds = [NSSet set];
         _activeDirectionIds = [NSSet set];
-        _steeringNeutralSince = [NSMutableDictionary dictionary];
         [self reloadBindingsForUid:0];
     }
     return self;
@@ -85,7 +82,6 @@ enum {
 }
 
 - (void)releaseAllMappedTouches {
-    [_steeringNeutralSince removeAllObjects];
     if (_activeTouchIds.count == 0 && _activeDirectionIds.count == 0) return;
     for (NSDictionary *mapping in _touchMappings) {
         if ([_activeTouchIds containsObject:mapping[@"id"]] || [_activeDirectionIds containsObject:mapping[@"id"]]) {
@@ -393,52 +389,28 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
 - (void)updateDirectionTouchesForDisplayFrame {
     const BOOL canDrive = self.enabled && !self.menuShown && !self.appsListShown;
     const CGPoint direction = canDrive ? [self directionForHeldController] : CGPointZero;
-    const CFTimeInterval now = CACurrentMediaTime();
     NSMutableSet<NSString *> *activeDisks = [NSMutableSet set];
     for (NSDictionary *mapping in _touchMappings) {
         NSString *type = mapping[@"type"];
         if ([type isEqualToString:@"steering"]) {
             NSString *identifier = mapping[@"id"];
             const CGFloat deadzone = MAX(0.0, MIN(0.35, [mapping[@"deadzone"] doubleValue]));
-            // Schmitt-trigger release threshold: entering steering requires crossing the
-            // configured deadzone, while ending an existing gesture requires settling much
-            // closer to the physical centre. This prevents a direction reversal from being
-            // mistaken for a released stick.
-            const CGFloat releaseDeadzone = MIN(deadzone, MAX(0.015, deadzone * 0.35));
             CGFloat axis = canDrive ? _leftStickX : 0.0;
             const BOOL wasActive = [_activeDirectionIds containsObject:identifier];
 
             if (!canDrive) {
                 // Menus, the app list and disabled gameplay must never retain a guest touch.
-                [_steeringNeutralSince removeObjectForKey:identifier];
                 continue;
             }
 
             if (fabs(axis) <= deadzone) {
-                if (!wasActive) {
-                    [_steeringNeutralSince removeObjectForKey:identifier];
-                    continue;
-                }
-
-                // Keep the pointer down at neutral while the stick crosses the centre. Only
-                // a stick that remains inside the narrower release band is treated as truly
-                // released; moving through the outer deadzone resets the settling timer.
-                if (fabs(axis) <= releaseDeadzone) {
-                    NSNumber *neutralSince = _steeringNeutralSince[identifier];
-                    if (!neutralSince) {
-                        neutralSince = @(now);
-                        _steeringNeutralSince[identifier] = neutralSince;
-                    }
-                    if (now - neutralSince.doubleValue >= 0.25) {
-                        [_steeringNeutralSince removeObjectForKey:identifier];
-                        continue;
-                    }
-                } else {
-                    [_steeringNeutralSince removeObjectForKey:identifier];
-                }
+                if (!wasActive) continue;
+                // Xbox controllers expose the stick axes but no capacitive "finger present"
+                // signal. Once steering is captured, centre therefore means neutral position,
+                // never touch-up. The gesture is released only by an explicit lifecycle event
+                // (menu/disabled gameplay/controller disconnect/mapping reload).
                 axis = 0.0;
             } else {
-                [_steeringNeutralSince removeObjectForKey:identifier];
                 const CGFloat sign = axis < 0.0 ? -1.0 : 1.0;
                 const CGFloat magnitude = (fabs(axis) - deadzone) / MAX(0.001, 1.0 - deadzone);
                 axis = sign * MAX(0.0, MIN(1.0, magnitude));
