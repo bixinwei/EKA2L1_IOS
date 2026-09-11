@@ -174,6 +174,9 @@ namespace eka2l1::ios::bridge {
     // Per-app upscale/filter shader by name (e.g. "natural"); nullptr/"" = off. Persisted into the
     // core's app-settings (compat/<UID>.yml); takes effect on the app's next launch.
     void set_app_filter_shader(std::uint32_t uid, const char *shader_name);
+    void set_active_filter_shader(const char *shader_name);
+    // Update the active color-enhancement shader without leaving the game.
+    void set_color_enhancement_params(float exposure, float saturation);
 
     // "Gyroscope passthrough": when true, the CoreMotion accelerometer backend feeds real device
     // tilt to the guest's accelerometer sensor; when false it feeds nothing (like the null stub).

@@ -646,6 +646,20 @@ namespace eka2l1::ios::bridge {
         }
     }
 
+    void set_color_enhancement_params(float exposure, float saturation) {
+        std::lock_guard<std::mutex> guard(g_mutex);
+        if (g_state && g_state->graphics_driver) {
+            g_state->graphics_driver->set_color_enhancement_params(exposure, saturation);
+        }
+    }
+
+    void set_active_filter_shader(const char *shader_name) {
+        std::lock_guard<std::mutex> guard(g_mutex);
+        if (g_state && g_state->launcher_) {
+            g_state->launcher_->set_active_filter_shader(shader_name ? std::string(shader_name) : std::string());
+        }
+    }
+
     void set_gyro_passthrough(bool enabled) {
         // Just a process-wide flag the CoreMotion sensor backend reads; no emulator lock needed.
         eka2l1::drivers::set_sensor_passthrough_enabled(enabled);

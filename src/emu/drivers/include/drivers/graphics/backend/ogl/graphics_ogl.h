@@ -32,6 +32,7 @@
 
 #include <memory>
 #include <queue>
+#include <atomic>
 
 namespace eka2l1::drivers {
     struct ogl_state {
@@ -93,6 +94,11 @@ namespace eka2l1::drivers {
         GLint flip_upscaled_loc;
         GLint texel_delta_upscaled_loc_;
         GLint pixel_delta_upscaled_loc_;
+        GLint exposure_upscaled_loc_;
+        GLint saturation_upscaled_loc_;
+
+        std::atomic<float> color_exposure_;
+        std::atomic<float> color_saturation_;
 
         GLint color_loc_brush;
         GLint proj_loc_brush;
@@ -210,6 +216,7 @@ namespace eka2l1::drivers {
         void wait_for(int *status) override;
         void set_upscale_shader(const std::string &name) override;
         std::string get_active_upscale_shader() const override;
+        void set_color_enhancement_params(float exposure, float saturation) override;
 
         bool support_extension(const graphics_driver_extension ext) override;
         bool query_extension_value(const graphics_driver_extension_query query, void *data_ptr) override;

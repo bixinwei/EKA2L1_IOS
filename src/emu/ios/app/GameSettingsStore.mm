@@ -39,6 +39,9 @@
         _hapticPassthrough = YES; // on by default; pass the guest's vibration requests to the Taptic Engine
         _renderScale = 0.0;   // 0 = Native (the screen's own scale)
         _filterShader = @"";  // empty = upscale shader OFF
+        _enhancementExposure = 0.0;
+        _enhancementSaturation = 1.0;
+        _enhancementEnabled = NO;
     }
     return self;
 }
@@ -140,6 +143,15 @@
     if ([dict[@"filterShader"] isKindOfClass:[NSString class]]) {
         s.filterShader = dict[@"filterShader"];
     }
+    if (dict[@"enhancementExposure"] != nil) {
+        s.enhancementExposure = MAX(-2.0, MIN(2.0, [dict[@"enhancementExposure"] doubleValue]));
+    }
+    if (dict[@"enhancementSaturation"] != nil) {
+        s.enhancementSaturation = MAX(0.0, MIN(2.0, [dict[@"enhancementSaturation"] doubleValue]));
+    }
+    if (dict[@"enhancementEnabled"] != nil) {
+        s.enhancementEnabled = [dict[@"enhancementEnabled"] boolValue];
+    }
     if ([dict[@"customLayoutPortrait"] isKindOfClass:[NSArray class]]) {
         s.customLayoutPortrait = dict[@"customLayoutPortrait"];
     }
@@ -179,6 +191,9 @@
         @"hapticPassthrough": @(settings.hapticPassthrough),
         @"renderScale": @(settings.renderScale),
         @"filterShader": (settings.filterShader ?: @""),
+        @"enhancementExposure": @(settings.enhancementExposure),
+        @"enhancementSaturation": @(settings.enhancementSaturation),
+        @"enhancementEnabled": @(settings.enhancementEnabled)
     } mutableCopy];
     if (settings.customLayoutsPortraitByKeyLayout.count) {
         dict[@"customLayoutsPortraitByKeyLayout"] = settings.customLayoutsPortraitByKeyLayout;

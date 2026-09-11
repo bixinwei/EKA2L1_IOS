@@ -116,6 +116,12 @@ static const CGFloat EKAGameMenuMargin = 8.0;
 @property (nonatomic, strong) NSMutableDictionary<NSNumber *, UIImage *> *iconCache;
 @property (nonatomic, strong) NSString *pendingRomPath;
 @property (nonatomic, strong) NSMutableArray<NSString *> *pendingImportedFiles;
+@property (nonatomic, strong) UIView *enhancementPanel;
+@property (nonatomic, strong) UILabel *enhancementExposureLabel;
+@property (nonatomic, strong) UILabel *enhancementSaturationLabel;
+@property (nonatomic, strong) UISlider *enhancementExposureSlider;
+@property (nonatomic, strong) UISlider *enhancementSaturationSlider;
+@property (nonatomic, strong) NSTimer *enhancementSaveTimer;
 - (void)pollUntilAppsThen:(void (^)(BOOL found))done attemptsLeft:(int)attempts;
 - (void)drainPendingImportedFiles;
 - (void)installImportedContentAtPath:(NSString *)path;
@@ -795,7 +801,7 @@ static const CGFloat EKAGameMenuMargin = 8.0;
 // The visual enhancement is a purpose-built GLES post-process bundled with the iOS port.
 // It is selected here rather than overloading the user's technical Upscale Shader preference.
 - (NSString *)effectiveFilterShaderForSettings:(EKAGameSettings *)settings {
-    return settings.filterShader ?: @"";
+    return settings.enhancementEnabled ? @"color-enhance" : (settings.filterShader ?: @"");
 }
 
 - (void)launchAppUid:(std::uint32_t)uid {
@@ -805,6 +811,8 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     EKAGameSettings *s = [GameSettingsStore settingsForUid:uid];
     eka2l1::ios::bridge::set_app_refresh_rate(uid, (int)s.refreshRate);  // read by the guest on launch
     eka2l1::ios::bridge::set_app_filter_shader(uid, [self effectiveFilterShaderForSettings:s].UTF8String);
+    eka2l1::ios::bridge::set_color_enhancement_params((float)s.enhancementExposure,
+                                                       (float)s.enhancementSaturation);
     eka2l1::ios::bridge::set_gyro_passthrough(s.gyroPassthrough);  // feed device tilt to the guest accelerometer
     eka2l1::ios::bridge::set_haptic_passthrough(s.hapticPassthrough);  // pass guest vibration to the Taptic Engine
     eka2l1::ios::bridge::set_screen_rotation((int)s.screenRotation);
@@ -1155,6 +1163,7 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     GameMenuView *menu = [[GameMenuView alloc] initWithTitle:@"Game Menu"];
     [menu addOption:@"Switch Key Layout" destructive:NO handler:^{ [self showLayoutChooserController]; }];
     [menu addOption:@"Controller Touch Mapping" destructive:NO handler:^{ [self showTouchMappingEditor]; }];
+    [menu addOption:@"画质增强" destructive:NO handler:^{ [self showEnhancementPanel]; }];
     [menu addOption:@"Exit Game" destructive:YES handler:^{ [self exitGame]; }];
     [menu addOption:@"Cancel" destructive:NO handler:nil];
     [self presentGameMenu:menu];
@@ -1186,12 +1195,138 @@ static const CGFloat EKAGameMenuMargin = 8.0;
         handler:^(UIAlertAction *a) { [self showLayoutChooserNative]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Controller Touch Mapping" style:UIAlertActionStyleDefault
         handler:^(UIAlertAction *a) { [self showTouchMappingEditor]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"画质增强" style:UIAlertActionStyleDefault
+        handler:^(UIAlertAction *a) { [self showEnhancementPanel]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Exit Game" style:UIAlertActionStyleDestructive
         handler:^(UIAlertAction *a) { [self exitGame]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.menuButton;
     sheet.popoverPresentationController.sourceRect = self.menuButton.bounds;
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)showEnhancementPanel {
+    if (!self.gameRunning || self.currentGameUid == 0 || self.enhancementPanel) return;
+    EKAGameSettings *settings = [GameSettingsStore settingsForUid:self.currentGameUid];
+    settings.enhancementEnabled = YES;
+    [GameSettingsStore saveSettings:settings forUid:self.currentGameUid];
+    // Shader selection is queued safely and committed on the graphics thread's next draw.
+    eka2l1::ios::bridge::set_app_filter_shader(self.currentGameUid, "color-enhance");
+    eka2l1::ios::bridge::set_active_filter_shader("color-enhance");
+    eka2l1::ios::bridge::set_color_enhancement_params((float)settings.enhancementExposure,
+                                                       (float)settings.enhancementSaturation);
+
+    UIView *panel = [[UIView alloc] init];
+    panel.translatesAutoresizingMaskIntoConstraints = NO;
+    panel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.88];
+    panel.layer.cornerRadius = 14.0;
+    panel.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.25].CGColor;
+    panel.layer.borderWidth = 1.0;
+    [self.view addSubview:panel];
+    self.enhancementPanel = panel;
+    [NSLayoutConstraint activateConstraints:@[
+        [panel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [panel.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
+        [panel.widthAnchor constraintEqualToConstant:330],
+        [panel.heightAnchor constraintEqualToConstant:210]
+    ]];
+
+    UILabel *title = [[UILabel alloc] init];
+    title.translatesAutoresizingMaskIntoConstraints = NO;
+    title.text = @"画质增强";
+    title.textColor = UIColor.whiteColor;
+    title.font = [UIFont boldSystemFontOfSize:18];
+    [panel addSubview:title];
+    [NSLayoutConstraint activateConstraints:@[[title.topAnchor constraintEqualToAnchor:panel.topAnchor constant:16],
+        [title.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:18]]];
+
+    UILabel *(^makeLabel)(NSString *) = ^UILabel *(NSString *text) {
+        UILabel *label = [[UILabel alloc] init];
+        label.translatesAutoresizingMaskIntoConstraints = NO;
+        label.text = text;
+        label.textColor = UIColor.whiteColor;
+        label.font = [UIFont systemFontOfSize:14];
+        [panel addSubview:label];
+        return label;
+    };
+    UILabel *exposureLabel = makeLabel(@"曝光");
+    UILabel *saturationLabel = makeLabel(@"饱和度");
+    self.enhancementExposureLabel = exposureLabel;
+    self.enhancementSaturationLabel = saturationLabel;
+    UISlider *exposure = [[UISlider alloc] init];
+    UISlider *saturation = [[UISlider alloc] init];
+    exposure.translatesAutoresizingMaskIntoConstraints = NO;
+    saturation.translatesAutoresizingMaskIntoConstraints = NO;
+    exposure.minimumValue = -1.5; exposure.maximumValue = 1.5; exposure.value = settings.enhancementExposure;
+    saturation.minimumValue = 0.5; saturation.maximumValue = 1.5; saturation.value = settings.enhancementSaturation;
+    self.enhancementExposureSlider = exposure;
+    self.enhancementSaturationSlider = saturation;
+    [exposure addTarget:self action:@selector(enhancementSliderChanged:) forControlEvents:UIControlEventValueChanged];
+    [saturation addTarget:self action:@selector(enhancementSliderChanged:) forControlEvents:UIControlEventValueChanged];
+    [panel addSubview:exposure]; [panel addSubview:saturation];
+    [NSLayoutConstraint activateConstraints:@[
+        [exposureLabel.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:18], [exposureLabel.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:22],
+        [exposure.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:76], [exposure.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor constant:-18], [exposure.centerYAnchor constraintEqualToAnchor:exposureLabel.centerYAnchor],
+        [saturationLabel.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:18], [saturationLabel.topAnchor constraintEqualToAnchor:exposureLabel.bottomAnchor constant:28],
+        [saturation.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:76], [saturation.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor constant:-18], [saturation.centerYAnchor constraintEqualToAnchor:saturationLabel.centerYAnchor]
+    ]];
+    UIButton *reset = [UIButton buttonWithType:UIButtonTypeSystem];
+    reset.translatesAutoresizingMaskIntoConstraints = NO;
+    [reset setTitle:@"恢复默认" forState:UIControlStateNormal];
+    [reset addTarget:self action:@selector(resetEnhancement:) forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:reset];
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+    close.translatesAutoresizingMaskIntoConstraints = NO;
+    [close setTitle:@"完成" forState:UIControlStateNormal];
+    [close addTarget:self action:@selector(closeEnhancementPanel) forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:close];
+    [NSLayoutConstraint activateConstraints:@[[reset.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:18], [reset.bottomAnchor constraintEqualToAnchor:panel.bottomAnchor constant:-12], [close.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor constant:-18], [close.bottomAnchor constraintEqualToAnchor:panel.bottomAnchor constant:-12]]];
+    [self updateEnhancementLabels];
+}
+
+- (void)updateEnhancementLabels {
+    self.enhancementExposureLabel.text = [NSString stringWithFormat:@"曝光  %.2f", self.enhancementExposureSlider.value];
+    self.enhancementSaturationLabel.text = [NSString stringWithFormat:@"饱和度  %.2f", self.enhancementSaturationSlider.value];
+}
+
+- (void)enhancementSliderChanged:(UISlider *)sender {
+    EKAGameSettings *settings = [GameSettingsStore settingsForUid:self.currentGameUid];
+    settings.enhancementEnabled = YES;
+    settings.enhancementExposure = self.enhancementExposureSlider.value;
+    settings.enhancementSaturation = self.enhancementSaturationSlider.value;
+    eka2l1::ios::bridge::set_color_enhancement_params((float)settings.enhancementExposure, (float)settings.enhancementSaturation);
+    [self.enhancementSaveTimer invalidate];
+    self.enhancementSaveTimer = [NSTimer scheduledTimerWithTimeInterval:0.25 target:self
+        selector:@selector(persistEnhancementSettings) userInfo:nil repeats:NO];
+    [self updateEnhancementLabels];
+}
+
+- (void)persistEnhancementSettings {
+    if (!self.gameRunning || self.currentGameUid == 0) return;
+    EKAGameSettings *settings = [GameSettingsStore settingsForUid:self.currentGameUid];
+    settings.enhancementEnabled = YES;
+    settings.enhancementExposure = self.enhancementExposureSlider.value;
+    settings.enhancementSaturation = self.enhancementSaturationSlider.value;
+    [GameSettingsStore saveSettings:settings forUid:self.currentGameUid];
+    self.enhancementSaveTimer = nil;
+}
+
+- (void)resetEnhancement:(UIButton *)sender {
+    self.enhancementExposureSlider.value = 0.0;
+    self.enhancementSaturationSlider.value = 1.0;
+    [self enhancementSliderChanged:nil];
+}
+
+- (void)closeEnhancementPanel {
+    [self.enhancementSaveTimer invalidate];
+    self.enhancementSaveTimer = nil;
+    [self persistEnhancementSettings];
+    [self.enhancementPanel removeFromSuperview];
+    self.enhancementPanel = nil;
+    self.enhancementExposureSlider = nil;
+    self.enhancementSaturationSlider = nil;
+    self.enhancementExposureLabel = nil;
+    self.enhancementSaturationLabel = nil;
 }
 
 - (void)showTouchMappingEditor {

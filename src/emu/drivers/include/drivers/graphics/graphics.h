@@ -173,6 +173,7 @@ namespace eka2l1::drivers {
 
         virtual void set_upscale_shader(const std::string &name) = 0;
         virtual std::string get_active_upscale_shader() const = 0;
+        virtual void set_color_enhancement_params(float exposure, float saturation) { }
 
         virtual bool support_extension(const graphics_driver_extension ext) = 0;
         virtual bool query_extension_value(const graphics_driver_extension_query query, void *data_ptr) = 0;

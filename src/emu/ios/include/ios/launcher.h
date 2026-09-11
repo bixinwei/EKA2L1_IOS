@@ -75,6 +75,7 @@ namespace eka2l1::ios {
         std::uint32_t scale_type_;
         std::atomic<std::uint32_t> gravity_;
         std::atomic<int> screen_rotation_override_{-1};
+        std::atomic<bool> runtime_upscale_override_{false};
 
         // The emulated screen's on-screen rectangle, as fractions (0..1) of the swapchain,
         // updated every draw(). Lets the iOS frontend fit the on-screen controls into the empty
@@ -168,6 +169,7 @@ namespace eka2l1::ios {
         // Per-app upscale/filter shader by name (e.g. "natural"); "" = off. Written to compat/<UID>.yml
         // and consumed by screen::restore_from_config (driver->set_upscale_shader) on the app's launch.
         void set_app_filter_shader(std::uint32_t uid, const std::string &shader_name);
+        void set_active_filter_shader(const std::string &shader_name);
 
         // Text input / question dialog plumbing (driven by the dispatch + notifier services).
         bool open_input_view(const std::u16string &initial_text, const int max_len,

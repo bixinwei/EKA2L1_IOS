@@ -249,6 +249,7 @@ namespace eka2l1::ios {
     }
 
     void launcher::launch_app(std::uint32_t uid) {
+        runtime_upscale_override_.store(false, std::memory_order_relaxed);
         if (!alserv) {
             return;
         }
@@ -706,6 +707,13 @@ namespace eka2l1::ios {
         settings->add_or_replace_setting(uid, updated);
     }
 
+    void launcher::set_active_filter_shader(const std::string &shader_name) {
+        runtime_upscale_override_.store(!shader_name.empty(), std::memory_order_relaxed);
+        if (sys && sys->get_graphics_driver()) {
+            sys->get_graphics_driver()->set_upscale_shader(shader_name);
+        }
+    }
+
     void launcher::draw(drivers::graphics_command_builder &builder, epoc::screen *scr,
         std::uint32_t window_width, std::uint32_t window_height) {
         eka2l1::rect viewport;
@@ -839,7 +847,8 @@ namespace eka2l1::ios {
             src.size *= scr->display_scale_factor;
 
             std::uint32_t flags = 0;
-            if (scr->flags_ & epoc::screen::FLAG_SCREEN_UPSCALE_FACTOR_LOCK) {
+            if ((scr->flags_ & epoc::screen::FLAG_SCREEN_UPSCALE_FACTOR_LOCK)
+                || runtime_upscale_override_.load(std::memory_order_relaxed)) {
                 flags |= drivers::bitmap_draw_flag_use_upscale_shader;
             }
 

@@ -102,6 +102,8 @@ namespace eka2l1::drivers {
         , index_buffer_current_(0)
         , feature_flags_(0)
         , active_upscale_shader_("Default") {
+        color_exposure_.store(0.0f);
+        color_saturation_.store(1.0f);
         context_ = graphics::make_gl_context(info, false, true);
 
         if (!context_) {
@@ -358,6 +360,8 @@ namespace eka2l1::drivers {
         model_upscaled_loc = upscale_program->get_uniform_location("u_model").value_or(-1);
         texel_delta_upscaled_loc_ = upscale_program->get_uniform_location("u_texelDelta").value_or(-1);
         pixel_delta_upscaled_loc_ = upscale_program->get_uniform_location("u_pixelDelta").value_or(-1);
+        exposure_upscaled_loc_ = upscale_program->get_uniform_location("uExposure").value_or(-1);
+        saturation_upscaled_loc_ = upscale_program->get_uniform_location("uSaturation").value_or(-1);
         in_position_loc_upscale = is_stricted() ? 0 : upscale_program->get_attrib_location("in_position").value_or(-1);
         in_texcoord_loc_upscale = is_stricted() ? 1 : upscale_program->get_attrib_location("in_texcoord").value_or(-1);
 
@@ -384,16 +388,22 @@ namespace eka2l1::drivers {
     }
 
     void ogl_graphics_driver::commit_upscale_shader_change() {
-        if (pending_upscale_shader_.empty()) {
+        std::string requested_shader;
+        {
+            std::lock_guard<std::mutex> guard(mut_);
+            requested_shader = pending_upscale_shader_;
+            pending_upscale_shader_.clear();
+        }
+        if (requested_shader.empty()) {
             return;
         }
 
         std::string extra_header = "";
 
-        if ((pending_upscale_shader_ == "default") || (pending_upscale_shader_ == "Default")) {
-            pending_upscale_shader_ = sprite_upscaled_f_path;
+        if ((requested_shader == "default") || (requested_shader == "Default")) {
+            requested_shader = sprite_upscaled_f_path;
         } else {
-            pending_upscale_shader_ = "resources//upscale//" + pending_upscale_shader_ + ".frag";
+            requested_shader = "resources//upscale//" + requested_shader + ".frag";
             if (is_gles) {
                 extra_header = "#version 300 es\n";
             } else {
@@ -402,12 +412,11 @@ namespace eka2l1::drivers {
         }
 
         auto sprite_norm_vertex_module = std::make_unique<ogl_shader_module>(sprite_norm_v_path, shader_module_type::vertex);        
-        auto sprite_upscale_fragment_module = std::make_unique<ogl_shader_module>(pending_upscale_shader_, shader_module_type::fragment, extra_header);
+        auto sprite_upscale_fragment_module = std::make_unique<ogl_shader_module>(requested_shader, shader_module_type::fragment, extra_header);
 
         auto upscale_program_new = std::make_unique<ogl_shader_program>();
 
         if (!upscale_program_new->create(this, sprite_norm_vertex_module.get(), sprite_upscale_fragment_module.get())) {
-            pending_upscale_shader_.clear();
             return;
         }
 
@@ -418,13 +427,15 @@ namespace eka2l1::drivers {
         model_upscaled_loc = upscale_program->get_uniform_location("u_model").value_or(-1);
         texel_delta_upscaled_loc_ = upscale_program->get_uniform_location("u_texelDelta").value_or(-1);
         pixel_delta_upscaled_loc_ = upscale_program->get_uniform_location("u_pixelDelta").value_or(-1);
+        exposure_upscaled_loc_ = upscale_program->get_uniform_location("uExposure").value_or(-1);
+        saturation_upscaled_loc_ = upscale_program->get_uniform_location("uSaturation").value_or(-1);
         in_position_loc_upscale = upscale_program->get_attrib_location("in_position").value_or(-1);
         in_texcoord_loc_upscale = upscale_program->get_attrib_location("in_texcoord").value_or(-1);
 
-        pending_upscale_shader_.clear();
     }
 
     void ogl_graphics_driver::set_upscale_shader(const std::string &name) {
+        std::lock_guard<std::mutex> guard(mut_);
         if (name.empty()) {
             pending_upscale_shader_ = "Default";
             active_upscale_shader_ = "Default";
@@ -432,6 +443,11 @@ namespace eka2l1::drivers {
             pending_upscale_shader_ = name;
             active_upscale_shader_ = name;
         }
+    }
+
+    void ogl_graphics_driver::set_color_enhancement_params(float exposure, float saturation) {
+        color_exposure_.store(std::max(-2.0f, std::min(2.0f, exposure)), std::memory_order_relaxed);
+        color_saturation_.store(std::max(0.0f, std::min(2.0f, saturation)), std::memory_order_relaxed);
     }
 
     void ogl_graphics_driver::bind_swapchain_framebuf() {
@@ -740,6 +756,12 @@ namespace eka2l1::drivers {
 
             glUniform2fv(texel_delta_upscaled_loc_, 1, texel_delta);
             glUniform2fv(pixel_delta_upscaled_loc_, 1, pixel_delta);
+            if (exposure_upscaled_loc_ >= 0) {
+                glUniform1f(exposure_upscaled_loc_, color_exposure_.load(std::memory_order_relaxed));
+            }
+            if (saturation_upscaled_loc_ >= 0) {
+                glUniform1f(saturation_upscaled_loc_, color_saturation_.load(std::memory_order_relaxed));
+            }
         } else {
             glUniformMatrix4fv((mask_draw_texture ? model_loc_mask : model_loc), 1, false, glm::value_ptr(model_matrix));
             glUniformMatrix4fv((mask_draw_texture ? proj_loc_mask : proj_loc), 1, false, glm::value_ptr(projection_matrix));
