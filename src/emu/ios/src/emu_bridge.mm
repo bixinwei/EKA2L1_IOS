@@ -167,6 +167,9 @@ namespace eka2l1::ios::bridge {
 
                 // Read-only assets shipped in the .app, copied into the writable area.
                 copy_bundle_subdir(bundleRoot, dataRoot, @"resources");
+                // Existing installations keep their writable resources directory. Stage new
+                // shaders independently so an IPA upgrade cannot leave a saved shader missing.
+                copy_bundled_shader_if_missing(bundleRoot, dataRoot, @"color-enhance.frag");
                 copy_bundle_subdir(bundleRoot, dataRoot, @"compat");
                 copy_bundle_subdir(bundleRoot, dataRoot, @"patch");
             }
