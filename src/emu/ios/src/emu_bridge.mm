@@ -107,6 +107,18 @@ namespace eka2l1::ios::bridge {
             }
         }
 
+        void refresh_bundled_resource(NSString *bundleRoot, NSString *dataRoot, NSString *relative) {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSString *src = [bundleRoot stringByAppendingPathComponent:relative];
+            NSString *dst = [dataRoot stringByAppendingPathComponent:relative];
+            if (![fm fileExistsAtPath:src]) return;
+            [fm createDirectoryAtPath:[dst stringByDeletingLastPathComponent]
+          withIntermediateDirectories:YES attributes:nil error:nil];
+            NSError *err = nil;
+            if ([fm fileExistsAtPath:dst] && ![fm removeItemAtPath:dst error:&err]) return;
+            [fm copyItemAtPath:src toPath:dst error:&err];
+        }
+
         bool start_locked() {
             if (g_running) {
                 return g_has_device;
@@ -167,6 +179,10 @@ namespace eka2l1::ios::bridge {
 
                 // Read-only assets shipped in the .app, copied into the writable area.
                 copy_bundle_subdir(bundleRoot, dataRoot, @"resources");
+                // Refresh built-in programs on upgrade; writable resources may
+                // otherwise keep an older shader indefinitely.
+                refresh_bundled_resource(bundleRoot, dataRoot, @"resources/sprite_norm.frag");
+                refresh_bundled_resource(bundleRoot, dataRoot, @"resources/sprite_upscaled.frag");
                 // Existing installations keep their writable resources directory. Stage new
                 // shaders independently so an IPA upgrade cannot leave a saved shader missing.
                 copy_bundled_shader_if_missing(bundleRoot, dataRoot, @"color-enhance.frag");
@@ -653,6 +669,7 @@ namespace eka2l1::ios::bridge {
         std::lock_guard<std::mutex> guard(g_mutex);
         if (g_state && g_state->graphics_driver) {
             g_state->graphics_driver->set_color_enhancement_params(exposure, saturation);
+            request_redraw();
         }
     }
 

@@ -801,7 +801,7 @@ static const CGFloat EKAGameMenuMargin = 8.0;
 // The visual enhancement is a purpose-built GLES post-process bundled with the iOS port.
 // It is selected here rather than overloading the user's technical Upscale Shader preference.
 - (NSString *)effectiveFilterShaderForSettings:(EKAGameSettings *)settings {
-    return settings.enhancementEnabled ? @"color-enhance" : (settings.filterShader ?: @"");
+    return settings.filterShader ?: @"";
 }
 
 - (void)launchAppUid:(std::uint32_t)uid {
@@ -836,6 +836,11 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     [self.view setNeedsLayout];   // inset the GL view if "Hide Dynamic Island" is on
     [self becomeFirstResponder];  // start receiving hardware-keyboard presses
     eka2l1::ios::bridge::launch_app(uid);
+    if (s.enhancementEnabled) {
+        // launch_app restores the guest screen configuration and can clear the
+        // runtime override; apply it after the screen exists.
+        eka2l1::ios::bridge::set_active_filter_shader("color-enhance");
+    }
     [self applyScreenGravityForSize:self.view.bounds.size];
 
     // Automation hooks (like --launchfirst): pop a menu so it can be inspected.
