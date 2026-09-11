@@ -20,6 +20,7 @@
 #import <QuartzCore/CAEAGLLayer.h>
 
 #include <ios/emu_bridge.h>
+#include <cmath>
 
 @implementation EmulatorView {
     int _lastWidth;
@@ -206,6 +207,41 @@
     const CGPoint lastPosition = [_virtualTouchPositions[identifier] CGPointValue];
     if ((int)lastPosition.x == targetPX && (int)lastPosition.y == targetPY) return;
     eka2l1::ios::bridge::touch(targetPX, targetPY, eka2l1::ios::bridge::touch_action_move, pointerId);
+    _virtualTouchPositions[identifier] = [NSValue valueWithCGPoint:CGPointMake(targetPX, targetPY)];
+}
+
+- (void)setVirtualSteeringTouch:(NSString *)identifier
+                        centerX:(CGFloat)centerX centerY:(CGFloat)centerY
+                          radius:(CGFloat)radius angle:(CGFloat)angle
+                           sweep:(NSInteger)sweep axis:(CGFloat)axis {
+    if (identifier.length == 0 || !eka2l1::ios::bridge::is_running()) return;
+
+    NSNumber *existing = _virtualTouchSlots[identifier];
+    const int pointerId = [self allocateSlotForVirtualTouch:identifier];
+    const CGFloat scale = self.contentScaleFactor;
+    const CGFloat width = self.bounds.size.width * scale;
+    const CGFloat height = self.bounds.size.height * scale;
+    const CGFloat radiusPX = MAX(0.0, radius) * MIN(width, height);
+    const CGFloat clampedAxis = MAX(-1.0, MIN(1.0, axis));
+    const CGFloat direction = sweep >= 0 ? 1.0 : -1.0;
+    constexpr CGFloat halfPi = 1.57079632679489661923;
+    const CGFloat targetAngle = angle + clampedAxis * direction * halfPi;
+    const int neutralPX = (int)(centerX * width + std::cos(angle) * radiusPX);
+    const int neutralPY = (int)(centerY * height + std::sin(angle) * radiusPX);
+    const int targetPX = (int)(centerX * width + std::cos(targetAngle) * radiusPX);
+    const int targetPY = (int)(centerY * height + std::sin(targetAngle) * radiusPX);
+
+    if (!existing) {
+        eka2l1::ios::bridge::touch(neutralPX, neutralPY,
+                                   eka2l1::ios::bridge::touch_action_down, pointerId);
+        _virtualTouchPositions[identifier] = [NSValue valueWithCGPoint:CGPointMake(neutralPX, neutralPY)];
+        return;
+    }
+
+    const CGPoint lastPosition = [_virtualTouchPositions[identifier] CGPointValue];
+    if ((int)lastPosition.x == targetPX && (int)lastPosition.y == targetPY) return;
+    eka2l1::ios::bridge::touch(targetPX, targetPY,
+                               eka2l1::ios::bridge::touch_action_move, pointerId);
     _virtualTouchPositions[identifier] = [NSValue valueWithCGPoint:CGPointMake(targetPX, targetPY)];
 }
 

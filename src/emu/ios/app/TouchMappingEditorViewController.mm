@@ -8,6 +8,9 @@
 #import "KeybindCaptureViewController.h"
 #include <math.h>
 
+static const CGFloat EKAPi = 3.14159265358979323846;
+static const CGFloat EKAHalfPi = 1.57079632679489661923;
+
 // A direction disk owns its raw touches instead of combining UIPanGestureRecognizer and
 // UIPinchGestureRecognizer. UIKit allows those recognizers to compete, which made a one-finger
 // drag or two-finger scale intermittently fail depending on recognition timing.
@@ -70,6 +73,123 @@
     } else if (_activeTouches.count == 1) {
         // The remaining finger begins a new drag baseline; it must not inherit a stale pinch.
         _initialDistance = 0.0;
+    }
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self finishTouches:touches]; }
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self finishTouches:touches]; }
+@end
+
+// One transformable overlay represents the steering wheel's actual touch track. Unlike three
+// independent handles, its geometry can never stop being a true 180-degree circular arc.
+@interface EKASteeringArcMarker : UIControl
+@property (nonatomic, assign) NSInteger sweep;
+@property (nonatomic, copy) void (^moved)(CGPoint center);
+@property (nonatomic, copy) void (^transformed)(CGFloat scale, CGFloat rotation);
+@property (nonatomic, copy) void (^directionFlipped)(void);
+@property (nonatomic, copy) void (^finished)(void);
+@end
+
+@implementation EKASteeringArcMarker {
+    NSMutableSet<UITouch *> *_activeTouches;
+    UITouch *_dragTouch;
+    CGPoint _dragOffset;
+    CGFloat _initialDistance;
+    CGFloat _initialAngle;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.multipleTouchEnabled = YES;
+        self.backgroundColor = UIColor.clearColor;
+        _activeTouches = [NSMutableSet set];
+    }
+    return self;
+}
+
+- (void)setSweep:(NSInteger)sweep {
+    _sweep = sweep >= 0 ? 1 : -1;
+    [self setNeedsDisplay];
+}
+
+- (void)drawRect:(CGRect)rect {
+    const CGPoint center = CGPointMake(CGRectGetMidX(rect), CGRectGetMidY(rect));
+    const CGFloat radius = MAX(1.0, MIN(rect.size.width, rect.size.height) * 0.5 - 14.0);
+    UIBezierPath *sector = [UIBezierPath bezierPath];
+    [sector moveToPoint:center];
+    [sector addLineToPoint:CGPointMake(center.x + radius, center.y)];
+    [sector addArcWithCenter:center radius:radius startAngle:0 endAngle:EKAPi clockwise:YES];
+    [sector closePath];
+    [[UIColor colorWithRed:0.10 green:0.62 blue:1.0 alpha:0.16] setFill];
+    [sector fill];
+
+    UIBezierPath *arc = [UIBezierPath bezierPathWithArcCenter:center radius:radius
+                                                  startAngle:0 endAngle:EKAPi clockwise:YES];
+    arc.lineWidth = 8.0;
+    arc.lineCapStyle = kCGLineCapRound;
+    [[UIColor colorWithRed:0.10 green:0.62 blue:1.0 alpha:0.92] setStroke];
+    [arc stroke];
+
+    UIBezierPath *neutral = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(center.x - 7.0,
+        center.y + radius - 7.0, 14.0, 14.0)];
+    [UIColor.whiteColor setFill];
+    [neutral fill];
+
+    NSDictionary *attrs = @{ NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightBold],
+                             NSForegroundColorAttributeName: UIColor.whiteColor };
+    NSString *left = self.sweep < 0 ? @"L" : @"R";
+    NSString *right = self.sweep < 0 ? @"R" : @"L";
+    [left drawAtPoint:CGPointMake(center.x - radius - 5.0, center.y - 17.0) withAttributes:attrs];
+    [right drawAtPoint:CGPointMake(center.x + radius - 5.0, center.y - 17.0) withAttributes:attrs];
+}
+
+- (void)beginTwoFingerTransform {
+    if (_activeTouches.count < 2) return;
+    NSArray<UITouch *> *touches = _activeTouches.allObjects;
+    const CGPoint a = [touches[0] locationInView:self.superview];
+    const CGPoint b = [touches[1] locationInView:self.superview];
+    _initialDistance = MAX(1.0, hypot(a.x - b.x, a.y - b.y));
+    _initialAngle = atan2(b.y - a.y, b.x - a.x);
+    _dragTouch = nil;
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [_activeTouches unionSet:touches];
+    if (_activeTouches.count == 1) {
+        _dragTouch = _activeTouches.anyObject;
+        const CGPoint point = [_dragTouch locationInView:self.superview];
+        _dragOffset = CGPointMake(self.center.x - point.x, self.center.y - point.y);
+    } else {
+        [self beginTwoFingerTransform];
+    }
+}
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (_activeTouches.count >= 2) {
+        NSArray<UITouch *> *all = _activeTouches.allObjects;
+        const CGPoint a = [all[0] locationInView:self.superview];
+        const CGPoint b = [all[1] locationInView:self.superview];
+        const CGFloat distance = hypot(a.x - b.x, a.y - b.y);
+        const CGFloat angle = atan2(b.y - a.y, b.x - a.x);
+        if (self.transformed) self.transformed(distance / MAX(1.0, _initialDistance), angle - _initialAngle);
+        return;
+    }
+    if (_dragTouch && [touches containsObject:_dragTouch] && self.moved) {
+        const CGPoint point = [_dragTouch locationInView:self.superview];
+        self.moved(CGPointMake(point.x + _dragOffset.x, point.y + _dragOffset.y));
+    }
+}
+
+- (void)finishTouches:(NSSet<UITouch *> *)touches {
+    [_activeTouches minusSet:touches];
+    if (_activeTouches.count == 0) {
+        _dragTouch = nil;
+        if (self.finished) self.finished();
+    } else if (_activeTouches.count == 1) {
+        _dragTouch = _activeTouches.anyObject;
+        const CGPoint point = [_dragTouch locationInView:self.superview];
+        _dragOffset = CGPointMake(self.center.x - point.x, self.center.y - point.y);
     }
 }
 
@@ -209,7 +329,40 @@
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    [self migrateLegacySteeringMappingsIfNeeded];
     [self positionMarkers];
+}
+
+- (void)migrateLegacySteeringMappingsIfNeeded {
+    CGRect rect = [self gameRect];
+    if (CGRectIsEmpty(rect)) return;
+    BOOL changed = NO;
+    for (NSMutableDictionary *mapping in _mappings) {
+        if (![mapping[@"type"] isEqualToString:@"steering"] || mapping[@"radius"]) continue;
+
+        const CGPoint left = CGPointMake(CGRectGetMinX(rect) + rect.size.width * [mapping[@"leftX"] doubleValue],
+                                               CGRectGetMinY(rect) + rect.size.height * [mapping[@"leftY"] doubleValue]);
+        const CGPoint neutral = CGPointMake(CGRectGetMinX(rect) + rect.size.width * [mapping[@"x"] doubleValue],
+                                                  CGRectGetMinY(rect) + rect.size.height * [mapping[@"y"] doubleValue]);
+        const CGPoint right = CGPointMake(CGRectGetMinX(rect) + rect.size.width * [mapping[@"rightX"] doubleValue],
+                                                CGRectGetMinY(rect) + rect.size.height * [mapping[@"rightY"] doubleValue]);
+        const CGPoint center = CGPointMake((left.x + right.x) * 0.5, (left.y + right.y) * 0.5);
+        CGFloat radius = hypot(right.x - left.x, right.y - left.y) * 0.5;
+        if (radius < 20.0) radius = MAX(40.0, MIN(rect.size.width, rect.size.height) * 0.22);
+        CGFloat angle = atan2(neutral.y - center.y, neutral.x - center.x);
+        if (hypot(neutral.x - center.x, neutral.y - center.y) < 4.0) angle = EKAHalfPi;
+        const CGFloat rightAngle = atan2(right.y - center.y, right.x - center.x);
+        const CGFloat cross = cos(angle) * sin(rightAngle) - sin(angle) * cos(rightAngle);
+
+        mapping[@"centerX"] = @((center.x - CGRectGetMinX(rect)) / rect.size.width);
+        mapping[@"centerY"] = @((center.y - CGRectGetMinY(rect)) / rect.size.height);
+        mapping[@"radius"] = @(radius / MIN(rect.size.width, rect.size.height));
+        mapping[@"angle"] = @(angle);
+        mapping[@"sweep"] = @(cross >= 0.0 ? 1 : -1);
+        [mapping removeObjectsForKeys:@[@"x", @"y", @"leftX", @"leftY", @"rightX", @"rightY"]];
+        changed = YES;
+    }
+    if (changed) [self persist];
 }
 
 - (void)positionMarkers {
@@ -217,17 +370,14 @@
     for (NSMutableDictionary *mapping in _mappings) {
         if ([mapping[@"type"] isEqualToString:@"steering"]) {
             if (CGRectIsEmpty(rect)) continue;
-            NSArray<NSString *> *roles = @[@"left", @"center", @"right"];
-            NSArray<NSString *> *xKeys = @[@"leftX", @"x", @"rightX"];
-            NSArray<NSString *> *yKeys = @[@"leftY", @"y", @"rightY"];
-            for (NSUInteger i = 0; i < roles.count; ++i) {
-                NSString *key = [NSString stringWithFormat:@"%@:%@", mapping[@"id"], roles[i]];
-                UIView *handle = _markers[key];
-                handle.bounds = CGRectMake(0, 0, 52, 52);
-                handle.layer.cornerRadius = 26;
-                handle.center = CGPointMake(CGRectGetMinX(rect) + rect.size.width * [mapping[xKeys[i]] doubleValue],
-                                                  CGRectGetMinY(rect) + rect.size.height * [mapping[yKeys[i]] doubleValue]);
-            }
+            EKASteeringArcMarker *arc = (EKASteeringArcMarker *)_markers[mapping[@"id"]];
+            const CGFloat radius = [mapping[@"radius"] doubleValue] * MIN(rect.size.width, rect.size.height);
+            arc.bounds = CGRectMake(0, 0, radius * 2.0 + 28.0, radius * 2.0 + 28.0);
+            arc.center = CGPointMake(CGRectGetMinX(rect) + rect.size.width * [mapping[@"centerX"] doubleValue],
+                                     CGRectGetMinY(rect) + rect.size.height * [mapping[@"centerY"] doubleValue]);
+            arc.sweep = [mapping[@"sweep"] integerValue];
+            arc.transform = CGAffineTransformMakeRotation([mapping[@"angle"] doubleValue] - EKAHalfPi);
+            [arc setNeedsDisplay];
             continue;
         }
         UIView *marker = _markers[mapping[@"id"]];
@@ -246,27 +396,29 @@
     [_markers removeAllObjects];
     for (NSMutableDictionary *mapping in _mappings) {
         if ([mapping[@"type"] isEqualToString:@"steering"]) {
-            NSArray<NSString *> *roles = @[@"left", @"center", @"right"];
-            NSArray<NSString *> *titles = @[@"左满", @"中立", @"右满"];
-            for (NSUInteger i = 0; i < roles.count; ++i) {
-                UIButton *handle = [UIButton buttonWithType:UIButtonTypeCustom];
-                handle.backgroundColor = i == 1 ? [UIColor colorWithRed:0.15 green:0.72 blue:0.40 alpha:0.92]
-                                                 : [UIColor colorWithRed:0.92 green:0.48 blue:0.12 alpha:0.92];
-                handle.layer.borderColor = UIColor.whiteColor.CGColor;
-                handle.layer.borderWidth = 2.0;
-                handle.clipsToBounds = YES;
-                handle.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
-                [handle setTitle:titles[i] forState:UIControlStateNormal];
-                handle.accessibilityIdentifier = mapping[@"id"];
-                handle.accessibilityLabel = roles[i];
-                UIPanGestureRecognizer *drag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragMarker:)];
-                [handle addGestureRecognizer:drag];
-                UILongPressGestureRecognizer *remove = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(removeMarker:)];
-                remove.minimumPressDuration = 0.55;
-                [handle addGestureRecognizer:remove];
-                [self.view addSubview:handle];
-                _markers[[NSString stringWithFormat:@"%@:%@", mapping[@"id"], roles[i]]] = handle;
-            }
+            EKASteeringArcMarker *arc = [[EKASteeringArcMarker alloc] initWithFrame:CGRectMake(0, 0, 180, 180)];
+            arc.accessibilityIdentifier = mapping[@"id"];
+            __weak typeof(self) weakSelf = self;
+            __weak EKASteeringArcMarker *weakArc = arc;
+            arc.moved = ^(CGPoint center) { [weakSelf moveSteeringArc:weakArc to:center]; };
+            arc.transformed = ^(CGFloat scale, CGFloat rotation) {
+                [weakSelf transformSteeringArc:weakArc scale:scale rotation:rotation];
+            };
+            arc.directionFlipped = ^{ [weakSelf flipSteeringArcDirection:weakArc]; };
+            arc.finished = ^{
+                weakArc.accessibilityValue = nil;
+                [weakSelf persist];
+            };
+            UILongPressGestureRecognizer *remove = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(removeMarker:)];
+            remove.minimumPressDuration = 0.55;
+            remove.cancelsTouchesInView = NO;
+            [arc addGestureRecognizer:remove];
+            UITapGestureRecognizer *flip = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(doubleTapSteeringArc:)];
+            flip.numberOfTapsRequired = 2;
+            flip.cancelsTouchesInView = NO;
+            [arc addGestureRecognizer:flip];
+            [self.view addSubview:arc];
+            _markers[mapping[@"id"]] = arc;
             continue;
         }
         UIButton *marker = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -372,13 +524,16 @@
 }
 
 - (void)addSteeringWheel {
+    CGRect rect = [self gameRect];
+    const CGFloat shorterEdge = MAX(1.0, MIN(rect.size.width, rect.size.height));
+    const CGFloat radius = MAX(48.0, shorterEdge * 0.24);
     NSMutableDictionary *wheel = [@{ @"id": [[NSUUID UUID] UUIDString], @"type": @"steering",
-                                     @"x": @0.5, @"y": @0.78,
-                                     @"leftX": @0.30, @"leftY": @0.66,
-                                     @"rightX": @0.70, @"rightY": @0.66,
+                                     @"centerX": @0.5, @"centerY": @0.62,
+                                     @"radius": @(radius / shorterEdge),
+                                     @"angle": @(EKAHalfPi), @"sweep": @(-1),
                                      @"deadzone": @0.08 } mutableCopy];
     [_mappings addObject:wheel];
-    _hint.text = @"分别拖动左满、中立、右满到游戏方向盘的对应触点。";
+    _hint.text = @"拖动半圆覆盖方向盘；双指缩放/旋转；双击交换左右。";
     _hint.textColor = [UIColor colorWithWhite:0.78 alpha:1.0];
     [self persist];
     [self rebuildMarkers];
@@ -440,6 +595,46 @@
     const CGFloat initial = disk.accessibilityValue.doubleValue;
     mapping[@"size"] = @(MAX(0.06, MIN(0.45, initial * scale)));
     [self positionMarkers];
+}
+
+- (void)moveSteeringArc:(EKASteeringArcMarker *)arc to:(CGPoint)point {
+    NSMutableDictionary *mapping = [self mappingForIdentifier:arc.accessibilityIdentifier];
+    CGRect rect = [self gameRect];
+    if (!mapping || CGRectIsEmpty(rect)) return;
+    point.x = MAX(CGRectGetMinX(rect), MIN(CGRectGetMaxX(rect), point.x));
+    point.y = MAX(CGRectGetMinY(rect), MIN(CGRectGetMaxY(rect), point.y));
+    mapping[@"centerX"] = @((point.x - CGRectGetMinX(rect)) / rect.size.width);
+    mapping[@"centerY"] = @((point.y - CGRectGetMinY(rect)) / rect.size.height);
+    [self positionMarkers];
+}
+
+- (void)transformSteeringArc:(EKASteeringArcMarker *)arc scale:(CGFloat)scale rotation:(CGFloat)rotation {
+    NSMutableDictionary *mapping = [self mappingForIdentifier:arc.accessibilityIdentifier];
+    if (!mapping) return;
+    if (arc.accessibilityValue.length == 0) {
+        arc.accessibilityValue = [NSString stringWithFormat:@"%.12f,%.12f",
+                                  [mapping[@"radius"] doubleValue], [mapping[@"angle"] doubleValue]];
+    }
+    NSArray<NSString *> *parts = [arc.accessibilityValue componentsSeparatedByString:@","];
+    if (parts.count != 2) return;
+    mapping[@"radius"] = @(MAX(0.04, MIN(0.65, parts[0].doubleValue * scale)));
+    mapping[@"angle"] = @(parts[1].doubleValue + rotation);
+    [self positionMarkers];
+}
+
+- (void)doubleTapSteeringArc:(UITapGestureRecognizer *)tap {
+    if (tap.state == UIGestureRecognizerStateRecognized) {
+        EKASteeringArcMarker *arc = (EKASteeringArcMarker *)tap.view;
+        if (arc.directionFlipped) arc.directionFlipped();
+    }
+}
+
+- (void)flipSteeringArcDirection:(EKASteeringArcMarker *)arc {
+    NSMutableDictionary *mapping = [self mappingForIdentifier:arc.accessibilityIdentifier];
+    if (!mapping) return;
+    mapping[@"sweep"] = @([mapping[@"sweep"] integerValue] >= 0 ? -1 : 1);
+    [self positionMarkers];
+    [self persist];
 }
 
 - (void)removeMarker:(UILongPressGestureRecognizer *)press {

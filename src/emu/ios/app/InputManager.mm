@@ -397,6 +397,16 @@ static NSArray<NSNumber *> *ScancodesForAction(EKAAction a) {
             const CGFloat sign = axis < 0.0 ? -1.0 : 1.0;
             const CGFloat magnitude = (fabs(axis) - deadzone) / MAX(0.001, 1.0 - deadzone);
             axis = sign * MAX(0.0, MIN(1.0, magnitude));
+            if ([mapping[@"radius"] isKindOfClass:[NSNumber class]]) {
+                NSMutableDictionary *event = [mapping mutableCopy];
+                event[@"steeringAxis"] = @(axis);
+                [self.delegate inputManagerSetTouchMapping:event active:YES];
+                [activeDisks addObject:mapping[@"id"]];
+                continue;
+            }
+
+            // Version-3 fallback. Opening the touch editor migrates this record to the
+            // centre/radius/orientation representation above.
             const CGFloat t = (axis + 1.0) * 0.5;
             const CGFloat lx = [mapping[@"leftX"] doubleValue], ly = [mapping[@"leftY"] doubleValue];
             const CGFloat cx = [mapping[@"x"] doubleValue], cy = [mapping[@"y"] doubleValue];

@@ -30,10 +30,27 @@
         NSString *type = [item[@"type"] isKindOfClass:[NSString class]] ? item[@"type"] : @"button";
         NSArray *tokens = item[@"tokens"];
         NSNumber *x = item[@"x"], *y = item[@"y"];
-        if (![identifier isKindOfClass:[NSString class]] || identifier.length == 0 ||
-            ![x isKindOfClass:[NSNumber class]] || ![y isKindOfClass:[NSNumber class]]) continue;
+        if (![identifier isKindOfClass:[NSString class]] || identifier.length == 0) continue;
         if (![type isEqualToString:@"button"] && ![type isEqualToString:@"dpad"] && ![type isEqualToString:@"steering"]) continue;
         if ([type isEqualToString:@"steering"]) {
+            NSNumber *centerX = item[@"centerX"], *centerY = item[@"centerY"];
+            NSNumber *radius = item[@"radius"], *angle = item[@"angle"];
+            if ([centerX isKindOfClass:[NSNumber class]] && [centerY isKindOfClass:[NSNumber class]] &&
+                [radius isKindOfClass:[NSNumber class]] && [angle isKindOfClass:[NSNumber class]]) {
+                NSInteger sweep = [item[@"sweep"] integerValue] >= 0 ? 1 : -1;
+                double deadzone = [item[@"deadzone"] isKindOfClass:[NSNumber class]] ? [item[@"deadzone"] doubleValue] : 0.08;
+                [out addObject:@{ @"id": identifier, @"type": type,
+                                  @"centerX": @(MAX(0.0, MIN(1.0, centerX.doubleValue))),
+                                  @"centerY": @(MAX(0.0, MIN(1.0, centerY.doubleValue))),
+                                  @"radius": @(MAX(0.04, MIN(0.65, radius.doubleValue))),
+                                  @"angle": angle, @"sweep": @(sweep),
+                                  @"deadzone": @(MAX(0.0, MIN(0.35, deadzone))) }];
+                continue;
+            }
+
+            // Keep version-3 steering records intact until the editor knows the actual game
+            // view aspect ratio and can migrate their three points into a true screen-space
+            // semicircle. Runtime retains the old path until that one-time migration occurs.
             NSNumber *leftX = item[@"leftX"], *leftY = item[@"leftY"];
             NSNumber *rightX = item[@"rightX"], *rightY = item[@"rightY"];
             if (![leftX isKindOfClass:[NSNumber class]] || ![leftY isKindOfClass:[NSNumber class]] ||
@@ -49,6 +66,7 @@
                               @"deadzone": @(MAX(0.0, MIN(0.35, deadzone))) }];
             continue;
         }
+        if (![x isKindOfClass:[NSNumber class]] || ![y isKindOfClass:[NSNumber class]]) continue;
         if ([type isEqualToString:@"dpad"]) {
             NSNumber *size = item[@"size"];
             double requestedSize = [size isKindOfClass:[NSNumber class]] ? size.doubleValue : 0.20;
@@ -75,7 +93,7 @@
 + (void)saveMappings:(NSArray<NSDictionary *> *)mappings forUid:(uint32_t)uid {
     if (uid == 0) return;
     NSError *error = nil;
-    NSData *data = [NSJSONSerialization dataWithJSONObject:@{ @"version": @3, @"mappings": mappings ?: @[] }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@{ @"version": @4, @"mappings": mappings ?: @[] }
                                                    options:NSJSONWritingPrettyPrinted error:&error];
     if (data && !error) [data writeToFile:[self pathForUid:uid] atomically:YES];
 }

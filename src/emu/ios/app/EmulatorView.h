@@ -41,6 +41,13 @@
 - (void)setVirtualDirectionTouch:(NSString *)identifier
                          centerX:(CGFloat)centerX centerY:(CGFloat)centerY
                          targetX:(CGFloat)targetX targetY:(CGFloat)targetY;
+// A calibrated steering overlay is a real screen-space semicircle. The neutral point and
+// every stick position are derived from one centre/radius/orientation instead of an
+// unconstrained three-point curve.
+- (void)setVirtualSteeringTouch:(NSString *)identifier
+                        centerX:(CGFloat)centerX centerY:(CGFloat)centerY
+                          radius:(CGFloat)radius angle:(CGFloat)angle
+                           sweep:(NSInteger)sweep axis:(CGFloat)axis;
 - (void)releaseAllVirtualTouches;
 
 @end
