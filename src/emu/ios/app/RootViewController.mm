@@ -1293,8 +1293,11 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     settings.enhancementSaturation = self.enhancementSaturationSlider.value;
     eka2l1::ios::bridge::set_color_enhancement_params((float)settings.enhancementExposure, (float)settings.enhancementSaturation);
     [self.enhancementSaveTimer invalidate];
-    self.enhancementSaveTimer = [NSTimer scheduledTimerWithTimeInterval:0.25 target:self
-        selector:@selector(persistEnhancementSettings) userInfo:nil repeats:NO];
+    __weak typeof(self) weakSelf = self;
+    self.enhancementSaveTimer = [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:NO block:^(NSTimer *timer) {
+        (void)timer;
+        [weakSelf persistEnhancementSettings];
+    }];
     [self updateEnhancementLabels];
 }
 
