@@ -836,11 +836,6 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     [self.view setNeedsLayout];   // inset the GL view if "Hide Dynamic Island" is on
     [self becomeFirstResponder];  // start receiving hardware-keyboard presses
     eka2l1::ios::bridge::launch_app(uid);
-    if (s.enhancementEnabled) {
-        // launch_app restores the guest screen configuration and can clear the
-        // runtime override; apply it after the screen exists.
-        eka2l1::ios::bridge::set_active_filter_shader("color-enhance");
-    }
     [self applyScreenGravityForSize:self.view.bounds.size];
 
     // Automation hooks (like --launchfirst): pop a menu so it can be inspected.
@@ -1215,8 +1210,6 @@ static const CGFloat EKAGameMenuMargin = 8.0;
     EKAGameSettings *settings = [GameSettingsStore settingsForUid:self.currentGameUid];
     settings.enhancementEnabled = YES;
     [GameSettingsStore saveSettings:settings forUid:self.currentGameUid];
-    // Shader selection is queued safely and committed on the graphics thread's next draw.
-    eka2l1::ios::bridge::set_active_filter_shader("color-enhance");
     eka2l1::ios::bridge::set_color_enhancement_params((float)settings.enhancementExposure,
                                                        (float)settings.enhancementSaturation);
 
